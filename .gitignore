@@ -1,0 +1,14 @@
+.cache/
+.benchmarks/
+__pycache__/
+.direnv/
+.env
+.hf/
+.hermes/
+.run/
+.sillytavern/
+.webui/
+.webui_secret_key
+logs/
+models/
+result

@@ -1,0 +1,426 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+NIXLOOM_LIBEXEC="${NIXLOOM_LIBEXEC:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)}"
+NIXLOOM_SHARE="${NIXLOOM_SHARE:-${NIXLOOM_LIBEXEC}}"
+if [[ -z "${NIXLOOM_ROOT:-}" && -f "${PWD}/config.yaml" \
+  && -f "${PWD}/config/models.lock.yaml" ]]; then
+  NIXLOOM_ROOT="${PWD}"
+fi
+NIXLOOM_ROOT="${NIXLOOM_ROOT:-${XDG_DATA_HOME:-${HOME}/.local/share}/nixloom}"
+export NIXLOOM_LIBEXEC NIXLOOM_ROOT NIXLOOM_SHARE
+
+# shellcheck source=config/lib.sh
+source "${NIXLOOM_LIBEXEC}/config/lib.sh"
+
+YES=0
+DRY_RUN=0
+declare -a ARGS=()
+
+usage() {
+  cat <<'EOF'
+NixLoom — one local-AI control surface
+
+Usage:
+  nixloom start [--yes] [--dry-run]   Start services, then warm the LLM
+  nixloom stop                         Stop every NixLoom service
+  nixloom restart [--yes] [--dry-run] Restart services and warm the LLM
+  nixloom status                       Show service and endpoint state
+  nixloom health                       Strict endpoint and GPU health check
+  nixloom logs [SERVICE] [--follow]    Read the systemd journal
+  nixloom config check                 Validate config and launch commands
+  nixloom env init                     Preview and create the private .env template
+  nixloom models check [ASSET...]      Verify pinned files (read-only, hashes files)
+  nixloom models download [ASSET...]   Preview, confirm, download and verify
+  nixloom test [smoke|hermes] [...]    Preview and run live regression tests
+  nixloom bench [cpu] [...]            Preview and run a fixed benchmark
+  nixloom backup [DEST]                Preview, quiesce, snapshot and restore services
+
+Safety:
+  Expensive or state-changing commands explain their effects and ask first.
+  --dry-run never changes state. --yes is required in non-interactive use.
+  Starting services never downloads a model.
+
+Services: runtime, hermes, webui, sillytavern (or all for logs)
+EOF
+  printf 'State directory: %s\n' "${NIXLOOM_ROOT}"
+}
+
+die() {
+  printf 'error: %s\n' "$*" >&2
+  exit 2
+}
+
+strip_safety_flags() {
+  local arg
+  ARGS=()
+  for arg in "$@"; do
+    case "${arg}" in
+      --yes|-y) YES=1 ;;
+      --dry-run) DRY_RUN=1 ;;
+      *) ARGS+=("${arg}") ;;
+    esac
+  done
+}
+
+confirm_plan() {
+  if (( DRY_RUN )); then
+    printf '\nDry run: nothing was started, stopped, downloaded or written.\n'
+    return 1
+  fi
+  if (( YES )); then
+    return 0
+  fi
+  if [[ ! -t 0 ]]; then
+    printf '\nRefusing to continue without a terminal. Re-run with --yes after reviewing the plan.\n' >&2
+    exit 2
+  fi
+  printf '\nContinue? [y/N] '
+  read -r answer
+  [[ "${answer,,}" == "y" || "${answer,,}" == "yes" ]]
+}
+
+require_root() {
+  [[ -d "${NIXLOOM_ROOT}" ]] || die \
+    "state directory does not exist: ${NIXLOOM_ROOT}; enable the Home Manager module first"
+}
+
+load_config() {
+  require_root
+  resolve_config_file "${NIXLOOM_ROOT}" ""
+  check_config_keys
+}
+
+unit_name() {
+  case "${1:-}" in
+    runtime) printf 'nixloom-runtime.service' ;;
+    hermes) printf 'nixloom-hermes.service' ;;
+    webui) printf 'nixloom-webui.service' ;;
+    sillytavern) printf 'nixloom-sillytavern.service' ;;
+    all|'') printf 'nixloom.target' ;;
+    *) die "unknown service: $1" ;;
+  esac
+}
+
+require_units() {
+  if ! systemctl --user cat nixloom.target >/dev/null 2>&1; then
+    die 'systemd units are not installed; rebuild the NixOS configuration first'
+  fi
+}
+
+is_running() {
+  systemctl --user --quiet is-active nixloom.target 2>/dev/null
+}
+
+service_table() {
+  local name unit active sub
+  printf '%-13s %-11s %s\n' SERVICE ACTIVE SUB
+  for name in runtime hermes webui sillytavern; do
+    unit="$(unit_name "${name}")"
+    active="$(systemctl --user show "${unit}" -p ActiveState --value 2>/dev/null || printf unknown)"
+    sub="$(systemctl --user show "${unit}" -p SubState --value 2>/dev/null || printf unknown)"
+    printf '%-13s %-11s %s\n' "${name}" "${active:-unknown}" "${sub:-unknown}"
+  done
+}
+
+probe_health() {
+  local strict="${1:-0}" failed=0 code name url extra loaded
+  load_config
+  probe() {
+    name="$1" url="$2" extra="${3:-}"
+    code="$(curl -m 3 -sS -o /dev/null -w '%{http_code}' "${url}" 2>/dev/null || true)"
+    if [[ "${code}" == 200 || ( -n "${extra}" && "${code}" == "${extra}" ) ]]; then
+      printf '%-13s ok    %s\n' "${name}" "${url}"
+    else
+      printf '%-13s %-5s %s (HTTP %s)\n' "${name}" \
+        "$([[ "${strict}" == 1 ]] && printf FAIL || printf down)" "${url}" "${code:-000}"
+      failed=1
+    fi
+  }
+  local llama_port hermes_port webui_port silly_port
+  llama_port="$(cfg_required '.ports.llama' 'ports.llama')"
+  hermes_port="$(cfg_required '.ports.hermes' 'ports.hermes')"
+  webui_port="$(cfg_required '.ports.webui' 'ports.webui')"
+  silly_port="$(cfg_required '.ports.sillytavern' 'ports.sillytavern')"
+  probe runtime "http://127.0.0.1:${llama_port}/health"
+  loaded="$(curl -m 3 -fsS "http://127.0.0.1:${llama_port}/running" 2>/dev/null \
+    | jq -r '[.running[]? | "\(.model) (\(.state))"] | join(", ")' 2>/dev/null || true)"
+  printf '%-13s %s\n' loaded "${loaded:-none}"
+  has_frontend hermes && probe hermes "http://127.0.0.1:${hermes_port}/health"
+  has_frontend webui && probe webui "http://127.0.0.1:${webui_port}/health"
+  has_frontend sillytavern && probe sillytavern "http://127.0.0.1:${silly_port}/" 401
+  if command -v nvidia-smi >/dev/null; then
+    nvidia-smi --query-gpu=name,memory.used,memory.total --format=csv,noheader 2>/dev/null \
+      | sed 's/^/gpu           /' || true
+  fi
+  (( strict == 0 || failed == 0 ))
+}
+
+ensure_runtime_key() {
+  local key_file="${NIXLOOM_ROOT}/.run/hermes-api-key" temporary
+  umask 077
+  mkdir -p "${NIXLOOM_ROOT}/.run"
+  if [[ ! -s "${key_file}" ]]; then
+    temporary="$(mktemp "${key_file}.XXXXXX")"
+    generate_api_key >"${temporary}"
+    chmod 600 "${temporary}"
+    mv -n "${temporary}" "${key_file}" || rm -f "${temporary}"
+  fi
+  HERMES_API_KEY="$(<"${key_file}")"
+  export HERMES_API_KEY
+}
+
+service_main() {
+  local service="${1:-}"
+  load_config
+  case "${service}" in
+    runtime)
+      exec "${NIXLOOM_LIBEXEC}/scripts/swap.sh"
+      ;;
+    hermes|webui)
+      ensure_runtime_key
+      exec "${NIXLOOM_LIBEXEC}/scripts/${service}.sh"
+      ;;
+    sillytavern)
+      exec "${NIXLOOM_LIBEXEC}/scripts/sillytavern.sh"
+      ;;
+    *) die "invalid internal service: ${service}" ;;
+  esac
+}
+
+enabled_main() {
+  load_config
+  [[ "${1:-}" == runtime ]] || has_frontend "${1:-}"
+}
+
+start_stack() {
+  local verb="${1:-start}" llama_port model payload
+  strip_safety_flags "${@:2}"
+  (( ${#ARGS[@]} == 0 )) || die "unexpected argument: ${ARGS[0]}"
+  load_config
+  model="$(llm_id)"
+  printf 'Plan: %s NixLoom\n' "${verb}"
+  printf '  services: runtime'
+  cfg_list '.deployment.frontends' | while IFS= read -r item; do printf ', %s' "${item}"; done
+  printf '\n  model:    %s (loaded into RAM/VRAM by a one-token warm-up)\n' "${model}"
+  printf '  state:    services may create or migrate files below %s\n' "${NIXLOOM_ROOT}"
+  printf '  network:  no downloads\n'
+  confirm_plan || return 0
+  require_units
+  systemctl --user "${verb}" nixloom.target
+  printf 'Waiting for the runtime proxy'
+  llama_port="$(cfg_required '.ports.llama' 'ports.llama')"
+  for _ in $(seq 1 120); do
+    if curl -fsS -m 2 "http://127.0.0.1:${llama_port}/health" >/dev/null 2>&1; then
+      printf ' ready.\nWarming %s' "${model}"
+      payload="$(jq -cn --arg model "${model}" '{model:$model,messages:[{role:"user",content:"hi"}],max_tokens:1,chat_template_kwargs:{enable_thinking:false}}')"
+      if curl -fsS --max-time 900 -o /dev/null -H 'Content-Type: application/json' \
+        -d "${payload}" "http://127.0.0.1:${llama_port}/v1/chat/completions"; then
+        printf ' ready.\n'
+        return 0
+      fi
+      printf ' failed. Inspect `nixloom logs runtime`.\n' >&2
+      return 1
+    fi
+    printf '.'
+    sleep 1
+  done
+  printf ' timed out. Inspect `nixloom logs runtime`.\n' >&2
+  return 1
+}
+
+models_plan() {
+  local -a requested=("$@")
+  local lock="${NIXLOOM_ASSET_LOCK_FILE:-${NIXLOOM_LIBEXEC}/config/models.lock.yaml}"
+  local asset path size total=0 current
+  [[ -f "${lock}" ]] || die "missing ${lock}"
+  if (( ${#requested[@]} == 0 )); then
+    mapfile -t requested < <(yq -r '.assets | keys | .[]' "${lock}")
+  fi
+  printf 'Plan: verify and download missing or size-mismatched pinned assets\n'
+  printf '  destination: %s\n' "${NIXLOOM_ROOT}"
+  for asset in "${requested[@]}"; do
+    [[ "$(ASSET="${asset}" yq -r '.assets | has(strenv(ASSET))' "${lock}")" == true ]] \
+      || die "unknown asset: ${asset}"
+    path="$(ASSET="${asset}" yq -r '.assets[strenv(ASSET)].path' "${lock}")"
+    size="$(ASSET="${asset}" yq -r '.assets[strenv(ASSET)].size' "${lock}")"
+    current=0
+    [[ -f "${NIXLOOM_ROOT}/${path}" ]] && current="$(stat -c '%s' "${NIXLOOM_ROOT}/${path}")"
+    if [[ "${current}" == "${size}" ]]; then
+      printf '  %-16s present (%s)\n' "${asset}" "$(numfmt --to=iec "${size}")"
+    else
+      printf '  %-16s DOWNLOAD %s -> %s\n' "${asset}" "$(numfmt --to=iec "${size}")" "${path}"
+      total=$((total + size))
+    fi
+  done
+  printf '  maximum new data: %s (resume files use a .part suffix)\n' "$(numfmt --to=iec "${total}")"
+  printf '  the download command SHA-256 verifies every selected file; no service is started\n'
+}
+
+backup_main() {
+  strip_safety_flags "$@"
+  (( ${#ARGS[@]} <= 1 )) || die 'backup accepts at most one destination'
+  require_root
+  local dest="${ARGS[0]:-${NIXLOOM_BACKUP_DIR:-${HOME}/backups/nixloom}}" was_running=0
+  local bytes=0 entry
+  for entry in .webui/data .sillytavern/xdg-data .hermes .env .webui_secret_key; do
+    if [[ -e "${NIXLOOM_ROOT}/${entry}" ]]; then
+      bytes=$((bytes + $(du -sb "${NIXLOOM_ROOT}/${entry}" | cut -f1)))
+    fi
+  done
+  printf 'Plan: create a private, verified state backup\n'
+  printf '  include: Open WebUI, SillyTavern, Hermes, .env and WebUI secret\n'
+  printf '  exclude: models, caches, logs and reproducible software\n'
+  printf '  output:  %s/nixloom-<timestamp>.tar.gz\n' "${dest}"
+  printf '  input:   %s before compression\n' "$(numfmt --to=iec "${bytes}")"
+  printf '  service impact: temporarily stop NixLoom, then restore its prior state\n'
+  confirm_plan || return 0
+  is_running && was_running=1
+  restore_after_backup() {
+    local rc=$?
+    trap - EXIT INT TERM
+    (( was_running )) && systemctl --user start nixloom.target
+    exit "${rc}"
+  }
+  trap restore_after_backup EXIT
+  trap 'exit 130' INT TERM
+  (( was_running )) && systemctl --user stop nixloom.target
+  "${NIXLOOM_LIBEXEC}/scripts/backup.sh" "${dest}"
+  trap - EXIT INT TERM
+  (( was_running )) && systemctl --user start nixloom.target
+}
+
+env_main() {
+  local sub="${1:-}"
+  [[ -n "${sub}" ]] && shift || true
+  [[ "${sub}" == init ]] || die 'usage: nixloom env init [--yes] [--dry-run]'
+  strip_safety_flags "$@"
+  (( ${#ARGS[@]} == 0 )) || die "unexpected argument: ${ARGS[0]}"
+  require_root
+  local target="${NIXLOOM_ROOT}/.env"
+  local template="${NIXLOOM_SHARE}/.env.example"
+  [[ -r "${template}" ]] || die "environment template not found: ${template}"
+  if [[ -e "${target}" ]]; then
+    printf 'Environment file already exists; nothing changed: %s\n' "${target}"
+    return 0
+  fi
+  printf 'Plan: create a private environment template\n'
+  printf '  source:      %s\n' "${template}"
+  printf '  destination: %s (mode 0600)\n' "${target}"
+  printf '  existing files and services are not changed\n'
+  confirm_plan || return 0
+  umask 077
+  cp -- "${template}" "${target}"
+  chmod 600 "${target}"
+  printf 'Created %s\n' "${target}"
+}
+
+main() {
+  local command="${1:-help}" sub="${2:-}"
+  case "${command}" in
+    help|-h|--help) usage ;;
+    start) shift; start_stack start "$@" ;;
+    restart) shift; start_stack restart "$@" ;;
+    stop)
+      shift; (( $# == 0 )) || die "unexpected argument: $1"
+      require_units
+      if is_running; then systemctl --user stop nixloom.target; printf 'NixLoom stopped.\n'
+      else printf 'NixLoom is already stopped.\n'; fi
+      ;;
+    status)
+      shift; (( $# == 0 )) || die "unexpected argument: $1"
+      require_units; service_table; printf '\n'; probe_health 0
+      ;;
+    health)
+      shift; (( $# == 0 )) || die "unexpected argument: $1"
+      probe_health 1
+      ;;
+    logs)
+      shift
+      local follow=0 component=all arg
+      for arg in "$@"; do
+        case "${arg}" in --follow|-f) follow=1 ;; *) [[ "${component}" == all ]] || die 'only one service may be selected'; component="${arg}" ;; esac
+      done
+      local -a journal_args=(--user -u "$(unit_name "${component}")" --lines 100 --no-pager)
+      (( follow )) && journal_args+=(--follow)
+      exec journalctl "${journal_args[@]}"
+      ;;
+    config)
+      [[ "${sub}" == check ]] || die 'usage: nixloom config check'
+      load_config
+      NIXLOOM_CONFIG_FILE="${NIXLOOM_CONFIG_FILE}" "${NIXLOOM_LIBEXEC}/scripts/llama.sh" --dry-run >/dev/null
+      NIXLOOM_CONFIG_FILE="${NIXLOOM_CONFIG_FILE}" "${NIXLOOM_LIBEXEC}/scripts/swap.sh" --dry-run >/dev/null
+      NIXLOOM_CONFIG_FILE="${NIXLOOM_CONFIG_FILE}" "${NIXLOOM_LIBEXEC}/scripts/sd.sh" --dry-run >/dev/null
+      while IFS= read -r frontend_name; do
+        HERMES_API_KEY=config-check NIXLOOM_CONFIG_FILE="${NIXLOOM_CONFIG_FILE}" \
+          "${NIXLOOM_LIBEXEC}/scripts/${frontend_name}.sh" --dry-run >/dev/null
+      done < <(cfg_list '.deployment.frontends')
+      printf 'Config and generated launch commands are valid.\n'
+      ;;
+    env)
+      shift
+      env_main "$@"
+      ;;
+    models)
+      shift; sub="${1:-}"; [[ -n "${sub}" ]] && shift || true
+      case "${sub}" in
+        check) exec "${NIXLOOM_LIBEXEC}/scripts/download-models.sh" --check "$@" ;;
+        download)
+          strip_safety_flags "$@"; models_plan "${ARGS[@]}"; confirm_plan || return 0
+          exec "${NIXLOOM_LIBEXEC}/scripts/download-models.sh" "${ARGS[@]}"
+          ;;
+        *) die 'usage: nixloom models {check|download} [ASSET...]' ;;
+      esac
+      ;;
+    test)
+      shift
+      if [[ $# -gt 0 && "$1" != -* ]]; then sub="$1"; shift; else sub=smoke; fi
+      [[ "${sub}" == smoke || "${sub}" == hermes ]] \
+        || die 'usage: nixloom test [smoke|hermes] [OPTIONS]'
+      strip_safety_flags "$@"
+      printf 'Plan: run the %s live regression suite\n' "${sub}"
+      printf '  impact: sends real inference requests to the running services\n'
+      if [[ "${sub}" == smoke && " ${ARGS[*]} " != *' --skip-sd '* ]]; then
+        printf '  GPU:    swaps from the LLM to SD once, generates a test image, then reloads the LLM\n'
+        printf '  time:   typically 3–15 minutes\n'
+      else
+        printf '  GPU:    does not intentionally load the SD checkpoint\n  time:   typically 1–5 minutes\n'
+      fi
+      printf '  files:  only temporary responses\n'
+      confirm_plan || return 0
+      [[ "${sub}" == hermes ]] && ensure_runtime_key
+      exec "${NIXLOOM_LIBEXEC}/tests/run.sh" "${sub}" "${ARGS[@]}"
+      ;;
+    bench)
+      shift
+      strip_safety_flags "$@"
+      if [[ "${ARGS[0]:-}" == cpu ]]; then
+        ARGS=("${ARGS[@]:1}")
+        printf 'Plan: run the 9955HX CPU/CCD matrix\n'
+        printf '  impact: stops NixLoom, runs 10 isolated server profiles, then restores it\n'
+        printf '  load:   sustained CPU/GPU load; expect roughly 30–90 minutes\n'
+        printf '  output: %s/.benchmarks/cpu-<timestamp>/\n' "${NIXLOOM_ROOT}"
+        confirm_plan || return 0
+        exec "${NIXLOOM_LIBEXEC}/tests/run.sh" cpu-matrix "${ARGS[@]}"
+      fi
+      printf 'Plan: run the fixed performance and quality benchmark\n'
+      printf '  impact: sustained inference against the running LLM\n'
+      printf '  time:   typically 10–40 minutes; extended quality takes longer\n'
+      printf '  output: one JSON result below %s/.benchmarks/\n' "${NIXLOOM_ROOT}"
+      confirm_plan || return 0
+      exec "${NIXLOOM_LIBEXEC}/tests/run.sh" benchmark "${ARGS[@]}"
+      ;;
+    backup)
+      shift; backup_main "$@"
+      ;;
+    __service)
+      shift; service_main "${1:-}"
+      ;;
+    __enabled)
+      shift; enabled_main "${1:-}"
+      ;;
+    *) die "unknown command: ${command} (try nixloom --help)" ;;
+  esac
+}
+
+main "$@"

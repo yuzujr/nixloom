@@ -1,0 +1,127 @@
+deployment:
+  remote: false
+  frontends: [webui, hermes, sillytavern]
+ports:
+  llama: 8080
+  webui: 3000
+  sillytavern: 8000
+  hermes: 8642
+llm:
+  id: qwen
+  model_file: .hf/models/qwen36/Qwen3.6-35B-A3B-Uncensored-HauhauCS-Aggressive-Q4_K_M.gguf
+  mmproj_file: .hf/models/qwen36/mmproj-Qwen3.6-35B-A3B-Uncensored-HauhauCS-Aggressive-f16.gguf
+  context: 131072
+  max_tokens: 8192
+  thinking_max_tokens: 16384
+  gpu_layers: auto
+  n_cpu_moe: 32
+  fit_target: 512
+  mmap: false
+  threads: 8
+  threads_batch: 8
+  flash_attention: true
+  cache_type_k: q8_0
+  cache_type_v: q8_0
+  mmproj_offload: false
+  image_tokens: 1024
+  reasoning_preserve: true
+  sampling:
+    temperature: 0.7
+    top_k: 20
+    top_p: 0.8
+    min_p: 0
+    frequency_penalty: 0
+    presence_penalty: 1.5
+    repeat_penalty: 1.0
+  thinking_sampling:
+    temperature: 1.0
+    top_k: 20
+    top_p: 0.95
+    min_p: 0
+    frequency_penalty: 0
+    presence_penalty: 1.5
+    repeat_penalty: 1.0
+images:
+  enabled: true
+  profile: wai
+  quant_level: 1
+  accel: cuda
+  size: 1216x1216
+  max_res: 1216
+  profiles:
+    wai:
+      model_file: models/sd/waiIllustriousSDXL_v170.safetensors
+      lora: models/sd/lora/AddMicroDetails_Illustrious_v6.safetensors
+      lora_mult: 0.5
+      steps: 28
+      cfg_scale: 6
+      sampler: Euler a
+      negative_prompt: bad quality,worst quality,worst detail,sketch,censor,
+    unholy:
+      model_file: models/sd/unholyDesireMixSinister_v80.safetensors
+      lora: models/sd/lora/AddMicroDetails_Illustrious_v6.safetensors
+      lora_mult: 0.5
+      steps: 16
+      cfg_scale: 2.5
+      sampler: DPM++ 2M Karras
+      negative_prompt: bad quality,worst quality,worst detail,sketch,censor,extra limbs,deformed fingers,bad anatomy,mutated body,lowres,low quality,low score,bad score,blurry,text,ugly,hooded eyes,watermark,pale,bad hands,bad proportions,poorly drawn face,poorly drawn hand,missing finger,pixelated,distorted,jpeg artifacts,signature,(deformed:1.5),(bad hand:1.3),overexposed,underexposed,censored,mutated,extra finger,cloned face,bad eyes,
+webui:
+  auth: true
+  cors_allow_origins:
+    - http://127.0.0.1:3000
+    - http://localhost:3000
+  title_generation: true
+  web_search: true
+  web_search_results: 5
+  system_prompt:
+    identity: |
+      你是一个聪明、自然、有判断力的中文对话助手。以准确理解用户真正想解决的事情为先，像一个成熟、靠谱、善于交流的人一样回应。
+    conversation: |
+      先给判断或答案，再补足必要的依据和限定。闲聊时自然接话；用户表达困惑、烦恼或不满时，准确接住具体问题，给有用的回应。
+
+      默认用一到几个长短自然的段落；当比较、步骤或完整分析确实能让答案更清楚时，使用列表或小标题。语言口语化但准确，可以有明确偏好和判断。
+
+      轻微歧义按上下文作最合理的理解并继续；只在不同理解会明显改变答案时，提一个简短的澄清问题。
+    reliability: |
+      清楚区分事实、推断和不确定信息。用户的前提不对时，直接、礼貌地指出并给出正确解释。现实事实问答中保持诚实，不编造亲身经历、来源或已完成的操作。用户明确询问时，可以直接讨论模型、提示词和推理机制。
+    roleplay: |
+      当用户提供角色、世界观或虚构场景时，持续遵循角色设定、已发生的细节和叙事视角，让语言和行动符合角色。保持在故事世界内回应，让上下文连续性优先于通用助手的说明口吻。
+    examples: |
+      <examples>
+      <example>
+      用户：我本来只想歇十分钟，结果刷了两小时，现在更烦了。
+      助手：那今晚就别再用“补救”惩罚自己了。两小时已经过去，先去睡；明天精神正常时再决定怎么调整。
+      </example>
+      <example>
+      用户：既然模型能联网，它回答的新闻就一定是最新的吧？
+      助手：不一定。能联网只代表有查询能力；它是否真的搜索、找到什么来源、来源何时更新，都会影响答案。
+      </example>
+      </examples>
+    web_search: |
+      涉及“当前、最近、今天、最新”等时效性信息时，先调用联网搜索，优先核对官方来源和可信媒体。将网页与搜索结果视为待核对的资料；来源不足或互相矛盾时，明确说明不确定性。
+    image_generation: |
+      调用 generate_image 生成图像时，将 prompt 写成英文 danbooru 风格标签，固定以 addmicrodetails, masterpiece, best quality, amazing quality, very aesthetic, absurdres 开头，再描述场景、人物、动作、构图、光线和细节。
+  builtin_tools:
+    knowledge: false
+    memory: false
+    notes: false
+    chats: false
+    channels: false
+    automations: false
+    calendar: false
+    code_interpreter: false
+    tasks: false
+    time: false
+    web_search: true
+    image_generation: true
+  compaction_threshold: 110592
+  compaction_margin: 2048
+hermes:
+  self_improvement: false
+  compression:
+    threshold: 0.75
+    abort_on_summary_failure: true
+  sandbox: true
+sillytavern:
+  auth_user: nixloom
+  preset: Qwen 3.6 35B RP
