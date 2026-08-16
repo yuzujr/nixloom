@@ -25,7 +25,6 @@ Usage:
   nixloom stop                         Stop every NixLoom service
   nixloom restart [--yes] [--dry-run] Restart services and warm the LLM
   nixloom status                       Show service and endpoint state
-  nixloom health                       Strict endpoint and GPU health check
   nixloom logs [SERVICE] [--follow]    Read the systemd journal
   nixloom config check                 Validate config and launch commands
   nixloom config init                  Preview and create the private config template
@@ -125,7 +124,7 @@ service_table() {
 }
 
 probe_health() {
-  local strict="${1:-0}" failed=0 code name url extra loaded
+  local code name url extra loaded
   load_config
   probe() {
     name="$1" url="$2" extra="${3:-}"
@@ -133,9 +132,7 @@ probe_health() {
     if [[ "${code}" == 200 || ( -n "${extra}" && "${code}" == "${extra}" ) ]]; then
       printf '%-13s ok    %s\n' "${name}" "${url}"
     else
-      printf '%-13s %-5s %s (HTTP %s)\n' "${name}" \
-        "$([[ "${strict}" == 1 ]] && printf FAIL || printf down)" "${url}" "${code:-000}"
-      failed=1
+      printf '%-13s %-5s %s (HTTP %s)\n' "${name}" "down" "${url}" "${code:-000}"
     fi
   }
   local llama_port hermes_port webui_port silly_port
@@ -154,7 +151,6 @@ probe_health() {
     nvidia-smi --query-gpu=name,memory.used,memory.total --format=csv,noheader 2>/dev/null \
       | sed 's/^/gpu           /' || true
   fi
-  (( strict == 0 || failed == 0 ))
 }
 
 ensure_runtime_key() {
@@ -356,11 +352,7 @@ main() {
       ;;
     status)
       shift; (( $# == 0 )) || die "unexpected argument: $1"
-      require_units; service_table; printf '\n'; probe_health 0
-      ;;
-    health)
-      shift; (( $# == 0 )) || die "unexpected argument: $1"
-      probe_health 1
+      require_units; service_table; printf '\n'; probe_health
       ;;
     logs)
       shift

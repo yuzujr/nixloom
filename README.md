@@ -51,7 +51,7 @@ nixloom start            # start services and warm the LLM
 | Command | What it does |
 | --- | --- |
 | `nixloom start` / `stop` / `restart` | Start, stop or restart the services (and warm the LLM on start) |
-| `nixloom status` / `health` | Show service/endpoint state; strict health check |
+| `nixloom status` | Show service and endpoint state |
 | `nixloom logs [SERVICE]` | Read the systemd journal |
 | `nixloom config check` / `init` | Validate config, or create the private template |
 | `nixloom models check` / `download` | Verify or download the pinned models |
