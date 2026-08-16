@@ -2,7 +2,9 @@
 set -euo pipefail
 
 NIXLOOM_LIBEXEC="${NIXLOOM_LIBEXEC:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)}"
-PROJECT_DIR="${NIXLOOM_ROOT:-${NIXLOOM_LIBEXEC}}"
+STATE_DIR="${NIXLOOM_STATE_DIR:-${XDG_STATE_HOME:-${HOME}/.local/state}/nixloom}"
+DATA_DIR="${NIXLOOM_DATA_DIR:-${XDG_DATA_HOME:-${HOME}/.local/share}/nixloom}"
+CACHE_DIR="${NIXLOOM_CACHE_DIR:-${XDG_CACHE_HOME:-${HOME}/.cache}/nixloom}"
 # shellcheck source=config/lib.sh
 source "${NIXLOOM_LIBEXEC}/config/lib.sh"
 
@@ -61,8 +63,8 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
-resolve_config_file "${PROJECT_DIR}" "${CONFIG_ARG}"
-use_project_caches "${PROJECT_DIR}"
+resolve_config_file "${CONFIG_ARG}"
+use_runtime_paths "${STATE_DIR}" "${DATA_DIR}" "${CACHE_DIR}"
 
 SD_PROFILE="$(image_profile)"
 SD_MODEL_FILE="$(cfg_required ".images.profiles.\"${SD_PROFILE}\".model_file" \
@@ -74,10 +76,10 @@ SD_ACCEL="$(cfg_required '.images.accel' 'images.accel')"
 SD_MAX_RES="$(cfg_required '.images.max_res' 'images.max_res')"
 
 if [[ "${SD_MODEL_FILE}" != /* ]]; then
-  SD_MODEL_FILE="${PROJECT_DIR}/${SD_MODEL_FILE}"
+  SD_MODEL_FILE="${DATA_DIR}/${SD_MODEL_FILE}"
 fi
 if [[ -n "${SD_LORA_FILE}" && "${SD_LORA_FILE}" != /* ]]; then
-  SD_LORA_FILE="${PROJECT_DIR}/${SD_LORA_FILE}"
+  SD_LORA_FILE="${DATA_DIR}/${SD_LORA_FILE}"
 fi
 if [[ -n "${SD_LORA_FILE}" && -z "${SD_LORA_MULT}" ]]; then
   printf 'images.profiles.%s.lora_mult is required when lora is set.\n' "${SD_PROFILE}" >&2
@@ -145,7 +147,7 @@ if [[ ! -f "${SD_MODEL_FILE}" ]]; then
   exit 2
 fi
 if [[ -n "${SD_LORA_FILE}" && ! -f "${SD_LORA_FILE}" ]]; then
-  printf 'LoRA file not found: %s\nPin it in the asset lock and run `nixloom models download`.\n' \
+  printf 'LoRA file not found: %s\nPin it under assets in config.yaml and run `nixloom models download`.\n' \
     "${SD_LORA_FILE}" >&2
   exit 2
 fi

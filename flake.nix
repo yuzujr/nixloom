@@ -117,7 +117,6 @@
             included = [ "bin" "config" "scripts" "tests" ];
           in
           value == root
-          || relative == ".env.example"
           || relative == "config.yaml"
           || builtins.any (prefix:
             relative == prefix || nixpkgs.lib.hasPrefix "${prefix}/" relative
@@ -132,7 +131,7 @@
           runHook preInstall
           mkdir -p "$out/bin" "$out/libexec/nixloom" "$out/share/nixloom"
           cp -r bin config scripts tests config.yaml "$out/libexec/nixloom/"
-          cp config.yaml config/models.lock.yaml .env.example "$out/share/nixloom/"
+          cp config.yaml "$out/share/nixloom/"
           chmod +x "$out/libexec/nixloom/bin/nixloom" \
             "$out/libexec/nixloom/scripts/"*.sh \
             "$out/libexec/nixloom/tests/"*.sh \
@@ -147,9 +146,10 @@
         '';
       };
       shellHook = backend: ''
-        export NIXLOOM_ROOT="$PWD"
-        export HF_HOME="$PWD/.hf"
-        export XDG_CACHE_HOME="$PWD/.cache"
+        export NIXLOOM_STATE_DIR="''${XDG_STATE_HOME:-$HOME/.local/state}/nixloom"
+        export NIXLOOM_DATA_DIR="''${XDG_DATA_HOME:-$HOME/.local/share}/nixloom"
+        export NIXLOOM_CACHE_DIR="''${XDG_CACHE_HOME:-$HOME/.cache}/nixloom"
+        export NIXLOOM_CONFIG_DIR="''${XDG_CONFIG_HOME:-$HOME/.config}/nixloom"
         export LD_LIBRARY_PATH="/run/opengl-driver/lib:$LD_LIBRARY_PATH"
 
         echo "NixLoom ${backend} development shell ready."
@@ -185,59 +185,42 @@
           chmod -R u+w source
           cd source
           patchShebangs bin scripts tests
-          export TAVILY_API_KEY=test
-          export SILLYTAVERN_AUTH_PASSWORD=test
           export HERMES_API_KEY=test
-          NIXLOOM_CONFIG_FILE="$PWD/config.yaml" bash -c \
-            'source config/lib.sh; check_config_keys'
+          export NIXLOOM_CONFIG_FILE="$PWD/config.yaml"
+          export NIXLOOM_STATE_DIR="$PWD/.state"
+          export NIXLOOM_DATA_DIR="$PWD/.data"
+          export NIXLOOM_CACHE_DIR="$PWD/.cache"
+          bash -c 'source config/lib.sh; check_config_keys'
           ./scripts/llama.sh --dry-run >/dev/null
           ./scripts/swap.sh --dry-run >/dev/null
-          NIXLOOM_ROOT="$PWD" ./bin/nixloom config check >/dev/null
+          ./bin/nixloom config check >/dev/null
           touch $out
         '';
 
-        # A normal installation has only the immutable package and an empty
-        # writable state directory. It must not depend on a source checkout,
-        # copied config or pre-existing .env.
+        # A normal installation has only the immutable package and empty
+        # writable directories. It must not depend on a source checkout,
+        # copied config or a pre-existing user config.
         clone-free-install = pkgs.runCommand "clone-free-install" {
           nativeBuildInputs = [ pkgs.gnugrep ];
         } ''
-          mkdir state
-          export NIXLOOM_ROOT="$PWD/state"
+          export XDG_CONFIG_HOME="$PWD/config"
+          export XDG_STATE_HOME="$PWD/state"
+          export XDG_DATA_HOME="$PWD/data"
+          export XDG_CACHE_HOME="$PWD/cache"
           ${nixloom}/bin/nixloom config check 2>config.stderr
           grep -q 'web search is disabled' config.stderr
-          test ! -e state/config.yaml
+          test ! -e config/nixloom/config.yaml
           test -r ${nixloom}/share/nixloom/config.yaml
-          test -r ${nixloom}/share/nixloom/models.lock.yaml
-          ${nixloom}/bin/nixloom env init --yes
-          test -f state/.env
-          test "$(stat -c '%a' state/.env)" = 600
+          ${nixloom}/bin/nixloom config init --yes
+          test -f config/nixloom/config.yaml
+          test "$(stat -c '%a' config/nixloom/config.yaml)" = 600
+          test "$(stat -c '%a' config/nixloom)" = 700
           if ${nixloom}/bin/nixloom models check qwen36_mmproj \
             >models.stdout 2>models.stderr; then
-            echo "an empty state directory unexpectedly passed model verification" >&2
+            echo "an empty data directory unexpectedly passed model verification" >&2
             exit 1
           fi
           grep -q 'missing or invalid.*qwen36_mmproj' models.stderr
-          touch $out
-        '';
-
-        # Config and the asset lock must describe exactly the same files.
-        model-paths = pkgs.runCommand "model-paths" {
-          nativeBuildInputs = [ pkgs.yq-go ];
-        } ''
-          cd ${self}
-          lock_paths="$({ yq -r '.assets[] | .path' config/models.lock.yaml; } | sort -u)"
-          cfg_paths="$({
-            yq -r '.llm.model_file' config.yaml
-            yq -r '.llm.mmproj_file' config.yaml
-            yq -r '.images.profiles[] | .model_file' config.yaml
-            yq -r '.images.profiles[] | .lora' config.yaml
-          } | grep -vx 'null' | grep -v '^$' | sort -u)"
-          if [[ "$cfg_paths" != "$lock_paths" ]]; then
-            echo "config.yaml and config/models.lock.yaml asset paths differ" >&2
-            diff -u <(printf '%s\n' "$cfg_paths") <(printf '%s\n' "$lock_paths") >&2 || true
-            exit 1
-          fi
           touch $out
         '';
 

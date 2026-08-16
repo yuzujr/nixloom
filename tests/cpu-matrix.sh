@@ -2,8 +2,9 @@
 set -euo pipefail
 
 NIXLOOM_LIBEXEC="${NIXLOOM_LIBEXEC:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)}"
-PROJECT_DIR="${NIXLOOM_ROOT:-${NIXLOOM_LIBEXEC}}"
-cd "${PROJECT_DIR}"
+STATE_DIR="${NIXLOOM_STATE_DIR:-${XDG_STATE_HOME:-${HOME}/.local/state}/nixloom}"
+mkdir -p "${STATE_DIR}"
+cd "${STATE_DIR}"
 
 PORT=18080
 PROMPT_TOKENS=4096
@@ -92,7 +93,7 @@ if systemctl --user --quiet is-active nixloom.target 2>/dev/null; then
 fi
 
 stamp="$(date +%Y%m%d-%H%M%S)"
-RESULT_DIR="${PROJECT_DIR}/.benchmarks/cpu-${stamp}"
+RESULT_DIR="${STATE_DIR}/.benchmarks/cpu-${stamp}"
 mkdir -p "${RESULT_DIR}"
 server_pid=""
 

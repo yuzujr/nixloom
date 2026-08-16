@@ -2,7 +2,9 @@
 set -euo pipefail
 
 NIXLOOM_LIBEXEC="${NIXLOOM_LIBEXEC:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)}"
-PROJECT_DIR="${NIXLOOM_ROOT:-${NIXLOOM_LIBEXEC}}"
+STATE_DIR="${NIXLOOM_STATE_DIR:-${XDG_STATE_HOME:-${HOME}/.local/state}/nixloom}"
+DATA_DIR="${NIXLOOM_DATA_DIR:-${XDG_DATA_HOME:-${HOME}/.local/share}/nixloom}"
+CACHE_DIR="${NIXLOOM_CACHE_DIR:-${XDG_CACHE_HOME:-${HOME}/.cache}/nixloom}"
 # shellcheck source=config/lib.sh
 source "${NIXLOOM_LIBEXEC}/config/lib.sh"
 
@@ -90,8 +92,8 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
-resolve_config_file "${PROJECT_DIR}" "${CONFIG_ARG}"
-use_project_caches "${PROJECT_DIR}"
+resolve_config_file "${CONFIG_ARG}"
+use_runtime_paths "${STATE_DIR}" "${DATA_DIR}" "${CACHE_DIR}"
 
 MODEL_ID="$(llm_id)"
 PORT="${PORT:-$(cfg_required '.ports.llama' 'ports.llama')}"
@@ -126,7 +128,7 @@ REPEAT_PENALTY="$(llm_cfg '.sampling.repeat_penalty')"
 
 for path_var in MODEL_FILE MMPROJ_FILE; do
   if [[ "${!path_var}" != /* ]]; then
-    printf -v "${path_var}" '%s/%s' "${PROJECT_DIR}" "${!path_var}"
+    printf -v "${path_var}" '%s/%s' "${DATA_DIR}" "${!path_var}"
   fi
 done
 

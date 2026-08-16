@@ -2,10 +2,9 @@
 set -euo pipefail
 
 NIXLOOM_LIBEXEC="${NIXLOOM_LIBEXEC:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)}"
-PROJECT_DIR="${NIXLOOM_ROOT:-${NIXLOOM_LIBEXEC}}"
 # shellcheck source=config/lib.sh
 source "${NIXLOOM_LIBEXEC}/config/lib.sh"
-resolve_config_file "${PROJECT_DIR}" ""
+resolve_config_file ""
 
 BASE_URL=""
 

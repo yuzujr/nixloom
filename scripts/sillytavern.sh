@@ -2,7 +2,8 @@
 set -euo pipefail
 
 NIXLOOM_LIBEXEC="${NIXLOOM_LIBEXEC:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)}"
-PROJECT_DIR="${NIXLOOM_ROOT:-${NIXLOOM_LIBEXEC}}"
+STATE_DIR="${NIXLOOM_STATE_DIR:-${XDG_STATE_HOME:-${HOME}/.local/state}/nixloom}"
+CACHE_DIR="${NIXLOOM_CACHE_DIR:-${XDG_CACHE_HOME:-${HOME}/.cache}/nixloom}"
 # shellcheck source=config/lib.sh
 source "${NIXLOOM_LIBEXEC}/config/lib.sh"
 
@@ -15,7 +16,8 @@ Usage: ./scripts/sillytavern.sh [options]
 
 Starts SillyTavern configured from config.yaml. When deployment.remote is set it
 listens for the Tailnet with basic auth and the 100.64.0.0/10 whitelist.
-All state lives under .sillytavern/ in the writable state directory.
+Persistent state lives under .sillytavern/ in the writable state directory and
+re-downloadable caches under the cache directory.
 
 After the first start, configure SillyTavern in the UI:
   API:       Chat Completion
@@ -54,25 +56,14 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
-resolve_config_file "${PROJECT_DIR}" "${CONFIG_ARG}"
-load_env_file "${PROJECT_DIR}"
+resolve_config_file "${CONFIG_ARG}"
 
 SILLY_MODEL="$(llm_id)"
 SILLY_PRESET="$(cfg_required '.sillytavern.preset' 'sillytavern.preset')"
-REMOTE="${NIXLOOM_REMOTE:-$(cfg_bool_required '.deployment.remote' 'deployment.remote')}"
-case "${REMOTE,,}" in
-  1|true|yes|on) REMOTE=1 ;;
-  0|false|no|off) REMOTE=0 ;;
-  *)
-    printf 'NIXLOOM_REMOTE must be a boolean (got %q).\n' "${REMOTE}" >&2
-    exit 2
-    ;;
-esac
+REMOTE="$(cfg_bool_required '.deployment.remote' 'deployment.remote')"
 PORT="$(cfg_required '.ports.sillytavern' 'ports.sillytavern')"
-AUTH_USER="${SILLYTAVERN_AUTH_USER:-$(cfg_required '.sillytavern.auth_user' 'sillytavern.auth_user')}"
-# The password is a secret and lives only in the gitignored .env, never in
-# the tracked config.yaml.
-AUTH_PASSWORD="${SILLYTAVERN_AUTH_PASSWORD:-}"
+AUTH_USER="$(cfg_required '.sillytavern.auth_user' 'sillytavern.auth_user')"
+AUTH_PASSWORD="$(cfg '.sillytavern.auth_password' '')"
 
 HOST="127.0.0.1"
 AUTH=0
@@ -83,14 +74,14 @@ if [[ "${REMOTE}" == "1" ]]; then
   TAILNET_WHITELIST=1
 fi
 
-SILLY_STATE_DIR="${PROJECT_DIR}/.sillytavern"
+SILLY_STATE_DIR="${STATE_DIR}/.sillytavern"
 export XDG_DATA_HOME="${SILLY_STATE_DIR}/xdg-data"
 export XDG_CONFIG_HOME="${SILLY_STATE_DIR}/xdg-config"
-export XDG_CACHE_HOME="${SILLY_STATE_DIR}/xdg-cache"
+export XDG_CACHE_HOME="${CACHE_DIR}/sillytavern"
 export XDG_STATE_HOME="${SILLY_STATE_DIR}/xdg-state"
 if [[ "${AUTH}" == "1" ]]; then
   if [[ -z "${AUTH_PASSWORD}" ]]; then
-    printf 'deployment.remote requires SILLYTAVERN_AUTH_PASSWORD in %s/.env.\n' "${PROJECT_DIR}" >&2
+    printf 'deployment.remote requires sillytavern.auth_password in config.yaml.\n' >&2
     exit 2
   fi
   export SILLYTAVERN_BASICAUTHUSER_USERNAME="${AUTH_USER}"

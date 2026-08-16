@@ -19,7 +19,15 @@ from typing import Any, Callable
 from urllib import error, parse, request
 
 
-PROJECT_DIR = Path(os.environ.get("NIXLOOM_ROOT", Path(__file__).resolve().parent.parent))
+# Benchmark JSON is user state, not a re-downloadable cache: write below the
+# XDG state directory like every other generated result.
+STATE_DIR = Path(
+    os.environ.get(
+        "NIXLOOM_STATE_DIR",
+        Path(os.environ.get("XDG_STATE_HOME", Path.home() / ".local" / "state"))
+        / "nixloom",
+    )
+)
 CONTROL_SYSTEM_PROMPT = "你是一个有帮助、诚实的中文对话助手。"
 
 
@@ -820,7 +828,7 @@ def main() -> int:
     if output is None:
         stamp = started_at.astimezone().strftime("%Y%m%d-%H%M%S")
         safe_label = re.sub(r"[^A-Za-z0-9_.-]+", "-", args.label).strip("-") or "default"
-        output = PROJECT_DIR / ".benchmarks" / f"{stamp}-{safe_label}.json"
+        output = STATE_DIR / ".benchmarks" / f"{stamp}-{safe_label}.json"
     output.parent.mkdir(parents=True, exist_ok=True)
     output.write_text(json.dumps(result, ensure_ascii=False, indent=2) + "\n")
 

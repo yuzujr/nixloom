@@ -3,12 +3,11 @@ set -euo pipefail
 
 NIXLOOM_LIBEXEC="${NIXLOOM_LIBEXEC:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)}"
 NIXLOOM_SHARE="${NIXLOOM_SHARE:-${NIXLOOM_LIBEXEC}}"
-if [[ -z "${NIXLOOM_ROOT:-}" && -f "${PWD}/config.yaml" \
-  && -f "${PWD}/config/models.lock.yaml" ]]; then
-  NIXLOOM_ROOT="${PWD}"
-fi
-NIXLOOM_ROOT="${NIXLOOM_ROOT:-${XDG_DATA_HOME:-${HOME}/.local/share}/nixloom}"
-export NIXLOOM_LIBEXEC NIXLOOM_ROOT NIXLOOM_SHARE
+NIXLOOM_STATE_DIR="${NIXLOOM_STATE_DIR:-${XDG_STATE_HOME:-${HOME}/.local/state}/nixloom}"
+NIXLOOM_DATA_DIR="${NIXLOOM_DATA_DIR:-${XDG_DATA_HOME:-${HOME}/.local/share}/nixloom}"
+NIXLOOM_CACHE_DIR="${NIXLOOM_CACHE_DIR:-${XDG_CACHE_HOME:-${HOME}/.cache}/nixloom}"
+NIXLOOM_CONFIG_DIR="${NIXLOOM_CONFIG_DIR:-${XDG_CONFIG_HOME:-${HOME}/.config}/nixloom}"
+export NIXLOOM_LIBEXEC NIXLOOM_STATE_DIR NIXLOOM_DATA_DIR NIXLOOM_CACHE_DIR NIXLOOM_CONFIG_DIR NIXLOOM_SHARE
 
 # shellcheck source=config/lib.sh
 source "${NIXLOOM_LIBEXEC}/config/lib.sh"
@@ -29,7 +28,7 @@ Usage:
   nixloom health                       Strict endpoint and GPU health check
   nixloom logs [SERVICE] [--follow]    Read the systemd journal
   nixloom config check                 Validate config and launch commands
-  nixloom env init                     Preview and create the private .env template
+  nixloom config init                  Preview and create the private config template
   nixloom models check [ASSET...]      Verify pinned files (read-only, hashes files)
   nixloom models download [ASSET...]   Preview, confirm, download and verify
   nixloom test [smoke|hermes] [...]    Preview and run live regression tests
@@ -43,7 +42,10 @@ Safety:
 
 Services: runtime, hermes, webui, sillytavern (or all for logs)
 EOF
-  printf 'State directory: %s\n' "${NIXLOOM_ROOT}"
+  printf 'Config:   %s\n' "${NIXLOOM_CONFIG_DIR}/config.yaml"
+  printf 'State:    %s\n' "${NIXLOOM_STATE_DIR}"
+  printf 'Data:     %s\n' "${NIXLOOM_DATA_DIR}"
+  printf 'Cache:    %s\n' "${NIXLOOM_CACHE_DIR}"
 }
 
 die() {
@@ -81,13 +83,12 @@ confirm_plan() {
 }
 
 require_root() {
-  [[ -d "${NIXLOOM_ROOT}" ]] || die \
-    "state directory does not exist: ${NIXLOOM_ROOT}; enable the Home Manager module first"
+  [[ -d "${NIXLOOM_STATE_DIR}" ]] || die \
+    "state directory does not exist: ${NIXLOOM_STATE_DIR}; enable the Home Manager module first"
 }
 
 load_config() {
-  require_root
-  resolve_config_file "${NIXLOOM_ROOT}" ""
+  resolve_config_file ""
   check_config_keys
 }
 
@@ -157,9 +158,9 @@ probe_health() {
 }
 
 ensure_runtime_key() {
-  local key_file="${NIXLOOM_ROOT}/.run/hermes-api-key" temporary
+  local key_file="${NIXLOOM_STATE_DIR}/.run/hermes-api-key" temporary
   umask 077
-  mkdir -p "${NIXLOOM_ROOT}/.run"
+  mkdir -p "${NIXLOOM_STATE_DIR}/.run"
   if [[ ! -s "${key_file}" ]]; then
     temporary="$(mktemp "${key_file}.XXXXXX")"
     generate_api_key >"${temporary}"
@@ -197,13 +198,14 @@ start_stack() {
   local verb="${1:-start}" llama_port model payload
   strip_safety_flags "${@:2}"
   (( ${#ARGS[@]} == 0 )) || die "unexpected argument: ${ARGS[0]}"
+  require_root
   load_config
   model="$(llm_id)"
   printf 'Plan: %s NixLoom\n' "${verb}"
   printf '  services: runtime'
   cfg_list '.deployment.frontends' | while IFS= read -r item; do printf ', %s' "${item}"; done
   printf '\n  model:    %s (loaded into RAM/VRAM by a one-token warm-up)\n' "${model}"
-  printf '  state:    services may create or migrate files below %s\n' "${NIXLOOM_ROOT}"
+  printf '  state:    services may create or migrate files below %s\n' "${NIXLOOM_STATE_DIR}"
   printf '  network:  no downloads\n'
   confirm_plan || return 0
   require_units
@@ -231,21 +233,23 @@ start_stack() {
 
 models_plan() {
   local -a requested=("$@")
-  local lock="${NIXLOOM_ASSET_LOCK_FILE:-${NIXLOOM_LIBEXEC}/config/models.lock.yaml}"
+  local config
+  load_config
+  config="${NIXLOOM_CONFIG_FILE}"
   local asset path size total=0 current
-  [[ -f "${lock}" ]] || die "missing ${lock}"
+  [[ -f "${config}" ]] || die "missing ${config}"
   if (( ${#requested[@]} == 0 )); then
-    mapfile -t requested < <(yq -r '.assets | keys | .[]' "${lock}")
+    mapfile -t requested < <(yq -r '.assets | keys | .[]' "${config}")
   fi
   printf 'Plan: verify and download missing or size-mismatched pinned assets\n'
-  printf '  destination: %s\n' "${NIXLOOM_ROOT}"
+  printf '  destination: %s\n' "${NIXLOOM_DATA_DIR}"
   for asset in "${requested[@]}"; do
-    [[ "$(ASSET="${asset}" yq -r '.assets | has(strenv(ASSET))' "${lock}")" == true ]] \
+    [[ "$(ASSET="${asset}" yq -r '.assets | has(strenv(ASSET))' "${config}")" == true ]] \
       || die "unknown asset: ${asset}"
-    path="$(ASSET="${asset}" yq -r '.assets[strenv(ASSET)].path' "${lock}")"
-    size="$(ASSET="${asset}" yq -r '.assets[strenv(ASSET)].size' "${lock}")"
+    path="$(ASSET="${asset}" yq -r '.assets[strenv(ASSET)].path' "${config}")"
+    size="$(ASSET="${asset}" yq -r '.assets[strenv(ASSET)].size' "${config}")"
     current=0
-    [[ -f "${NIXLOOM_ROOT}/${path}" ]] && current="$(stat -c '%s' "${NIXLOOM_ROOT}/${path}")"
+    [[ -f "${NIXLOOM_DATA_DIR}/${path}" ]] && current="$(stat -c '%s' "${NIXLOOM_DATA_DIR}/${path}")"
     if [[ "${current}" == "${size}" ]]; then
       printf '  %-16s present (%s)\n' "${asset}" "$(numfmt --to=iec "${size}")"
     else
@@ -260,16 +264,19 @@ models_plan() {
 backup_main() {
   strip_safety_flags "$@"
   (( ${#ARGS[@]} <= 1 )) || die 'backup accepts at most one destination'
-  require_root
+  load_config
   local dest="${ARGS[0]:-${NIXLOOM_BACKUP_DIR:-${HOME}/backups/nixloom}}" was_running=0
   local bytes=0 entry
-  for entry in .webui/data .sillytavern/xdg-data .hermes .env .webui_secret_key; do
-    if [[ -e "${NIXLOOM_ROOT}/${entry}" ]]; then
-      bytes=$((bytes + $(du -sb "${NIXLOOM_ROOT}/${entry}" | cut -f1)))
+  for entry in .webui/data .sillytavern/xdg-data .hermes .webui_secret_key; do
+    if [[ -e "${NIXLOOM_STATE_DIR}/${entry}" ]]; then
+      bytes=$((bytes + $(du -sb "${NIXLOOM_STATE_DIR}/${entry}" | cut -f1)))
     fi
   done
+  if [[ -f "${NIXLOOM_CONFIG_FILE}" ]]; then
+    bytes=$((bytes + $(stat -c '%s' "${NIXLOOM_CONFIG_FILE}")))
+  fi
   printf 'Plan: create a private, verified state backup\n'
-  printf '  include: Open WebUI, SillyTavern, Hermes, .env and WebUI secret\n'
+  printf '  include: config.yaml, Open WebUI, SillyTavern, Hermes and WebUI secret\n'
   printf '  exclude: models, caches, logs and reproducible software\n'
   printf '  output:  %s/nixloom-<timestamp>.tar.gz\n' "${dest}"
   printf '  input:   %s before compression\n' "$(numfmt --to=iec "${bytes}")"
@@ -290,29 +297,49 @@ backup_main() {
   (( was_running )) && systemctl --user start nixloom.target
 }
 
-env_main() {
+config_main() {
   local sub="${1:-}"
   [[ -n "${sub}" ]] && shift || true
-  [[ "${sub}" == init ]] || die 'usage: nixloom env init [--yes] [--dry-run]'
-  strip_safety_flags "$@"
-  (( ${#ARGS[@]} == 0 )) || die "unexpected argument: ${ARGS[0]}"
-  require_root
-  local target="${NIXLOOM_ROOT}/.env"
-  local template="${NIXLOOM_SHARE}/.env.example"
-  [[ -r "${template}" ]] || die "environment template not found: ${template}"
-  if [[ -e "${target}" ]]; then
-    printf 'Environment file already exists; nothing changed: %s\n' "${target}"
-    return 0
-  fi
-  printf 'Plan: create a private environment template\n'
-  printf '  source:      %s\n' "${template}"
-  printf '  destination: %s (mode 0600)\n' "${target}"
-  printf '  existing files and services are not changed\n'
-  confirm_plan || return 0
-  umask 077
-  cp -- "${template}" "${target}"
-  chmod 600 "${target}"
-  printf 'Created %s\n' "${target}"
+  case "${sub}" in
+    check)
+      strip_safety_flags "$@"
+      (( ${#ARGS[@]} == 0 )) || die "unexpected argument: ${ARGS[0]}"
+      load_config
+      NIXLOOM_CONFIG_FILE="${NIXLOOM_CONFIG_FILE}" "${NIXLOOM_LIBEXEC}/scripts/llama.sh" --dry-run >/dev/null
+      NIXLOOM_CONFIG_FILE="${NIXLOOM_CONFIG_FILE}" "${NIXLOOM_LIBEXEC}/scripts/swap.sh" --dry-run >/dev/null
+      NIXLOOM_CONFIG_FILE="${NIXLOOM_CONFIG_FILE}" "${NIXLOOM_LIBEXEC}/scripts/sd.sh" --dry-run >/dev/null
+      while IFS= read -r frontend_name; do
+        HERMES_API_KEY=config-check NIXLOOM_CONFIG_FILE="${NIXLOOM_CONFIG_FILE}" \
+          "${NIXLOOM_LIBEXEC}/scripts/${frontend_name}.sh" --dry-run >/dev/null
+      done < <(cfg_list '.deployment.frontends')
+      printf 'Config and generated launch commands are valid.\n'
+      ;;
+    init)
+      strip_safety_flags "$@"
+      (( ${#ARGS[@]} == 0 )) || die "unexpected argument: ${ARGS[0]}"
+      local target="${NIXLOOM_CONFIG_DIR}/config.yaml"
+      local template="${NIXLOOM_SHARE}/config.yaml"
+      [[ -r "${template}" ]] || die "config template not found: ${template}"
+      if [[ -e "${target}" ]]; then
+        printf 'Config file already exists; nothing changed: %s\n' "${target}"
+        return 0
+      fi
+      printf 'Plan: create a private config template\n'
+      printf '  source:      %s\n' "${template}"
+      printf '  destination: %s (mode 0600)\n' "${target}"
+      printf '  existing files and services are not changed\n'
+      confirm_plan || return 0
+      umask 077
+      mkdir -p "$(dirname "${target}")"
+      chmod 700 "$(dirname "${target}")"
+      cp -- "${template}" "${target}"
+      chmod 600 "${target}"
+      printf 'Created %s\n' "${target}"
+      ;;
+    *)
+      die 'usage: nixloom config {check|init} [--yes] [--dry-run]'
+      ;;
+  esac
 }
 
 main() {
@@ -346,20 +373,8 @@ main() {
       exec journalctl "${journal_args[@]}"
       ;;
     config)
-      [[ "${sub}" == check ]] || die 'usage: nixloom config check'
-      load_config
-      NIXLOOM_CONFIG_FILE="${NIXLOOM_CONFIG_FILE}" "${NIXLOOM_LIBEXEC}/scripts/llama.sh" --dry-run >/dev/null
-      NIXLOOM_CONFIG_FILE="${NIXLOOM_CONFIG_FILE}" "${NIXLOOM_LIBEXEC}/scripts/swap.sh" --dry-run >/dev/null
-      NIXLOOM_CONFIG_FILE="${NIXLOOM_CONFIG_FILE}" "${NIXLOOM_LIBEXEC}/scripts/sd.sh" --dry-run >/dev/null
-      while IFS= read -r frontend_name; do
-        HERMES_API_KEY=config-check NIXLOOM_CONFIG_FILE="${NIXLOOM_CONFIG_FILE}" \
-          "${NIXLOOM_LIBEXEC}/scripts/${frontend_name}.sh" --dry-run >/dev/null
-      done < <(cfg_list '.deployment.frontends')
-      printf 'Config and generated launch commands are valid.\n'
-      ;;
-    env)
       shift
-      env_main "$@"
+      config_main "$@"
       ;;
     models)
       shift; sub="${1:-}"; [[ -n "${sub}" ]] && shift || true
@@ -399,14 +414,14 @@ main() {
         printf 'Plan: run the 9955HX CPU/CCD matrix\n'
         printf '  impact: stops NixLoom, runs 10 isolated server profiles, then restores it\n'
         printf '  load:   sustained CPU/GPU load; expect roughly 30–90 minutes\n'
-        printf '  output: %s/.benchmarks/cpu-<timestamp>/\n' "${NIXLOOM_ROOT}"
+  printf '  output: %s/.benchmarks/cpu-<timestamp>/\n' "${NIXLOOM_STATE_DIR}"
         confirm_plan || return 0
         exec "${NIXLOOM_LIBEXEC}/tests/run.sh" cpu-matrix "${ARGS[@]}"
       fi
       printf 'Plan: run the fixed performance and quality benchmark\n'
       printf '  impact: sustained inference against the running LLM\n'
       printf '  time:   typically 10–40 minutes; extended quality takes longer\n'
-      printf '  output: one JSON result below %s/.benchmarks/\n' "${NIXLOOM_ROOT}"
+  printf '  output: one JSON result below %s/.benchmarks/\n' "${NIXLOOM_STATE_DIR}"
       confirm_plan || return 0
       exec "${NIXLOOM_LIBEXEC}/tests/run.sh" benchmark "${ARGS[@]}"
       ;;

@@ -49,26 +49,37 @@ nixloom models download
 nixloom start
 ```
 
-The flake source, executable, default configuration and asset lock stay
-read-only in `/nix/store`. The module creates a separate writable state
-directory at `$XDG_DATA_HOME/nixloom` (normally
-`~/.local/share/nixloom`) for models, databases, caches and `.env`. Model
+The flake source, executable and default configuration template stay read-only
+in `/nix/store`. The Home Manager module creates four separate writable
+directories under the XDG base directories:
+
+| Directory | Purpose |
+| --- | --- |
+| `~/.config/nixloom/` | Your private `config.yaml` (mode 0600) |
+| `~/.local/share/nixloom/` | Model weights, `.hf` and embeddings |
+| `~/.local/state/nixloom/` | Frontend databases, Hermes state, logs, keys |
+| `~/.cache/nixloom/` | Re-downloadable caches (llama-swap config, model caches) |
+
+On first activation the module copies the packaged template to
+`~/.config/nixloom/config.yaml` and never overwrites it afterwards. Model
 downloads remain an explicit, confirmed command; activation and service start
 never download anything.
 
 No secret is required for a loopback-only first start. Tavily search is
-disabled with a warning until `TAVILY_API_KEY` exists in the state directory's
-`.env`. `nixloom env init` previews and creates that private template when it
-is needed. Remote exposure and Civitai credentials are opt-in there as well.
+disabled with a warning until `credentials.tavily_api_key` is set in your
+private `config.yaml`. `nixloom config init` previews and creates that private
+template when it is needed. Remote exposure and Civitai credentials are opt-in
+there as well.
 
-Advanced users can change the data location or supply a declarative custom
+Advanced users can move the writable directories or supply a declarative custom
 configuration without cloning NixLoom:
 
 ```nix
 services.nixloom = {
-  stateDir = "/data/nixloom";
+  stateDir = "/data/nixloom/state";
+  dataDir = "/data/nixloom/data";
+  cacheDir = "/data/nixloom/cache";
   configFile = ./nixloom.yaml;
-  # assetLockFile = ./models.lock.yaml;
 };
 ```
 
@@ -91,7 +102,7 @@ anything. They all accept `--dry-run`; automation must pass `--yes`.
 
 | Command | Effect |
 | --- | --- |
-| `nixloom env init` | Creates a mode-0600 `.env` template after confirmation; never overwrites |
+| `nixloom config init` | Creates a mode-0600 `config.yaml` template after confirmation; never overwrites |
 | `nixloom start` | Starts declared services, may migrate frontend state, then warms Qwen; never downloads |
 | `nixloom models download [ASSET...]` | Shows files, destination and maximum bytes before downloading |
 | `nixloom test smoke` | Sends live requests; the default SD case unloads and later reloads Qwen |
@@ -111,32 +122,41 @@ nixloom logs webui
 
 ## Configuration ownership
 
-The packaged `config.yaml` is the default runtime profile. Large asset URLs,
-exact sizes and hashes live in the packaged `models.lock.yaml`. Both are
-immutable and versioned with the flake; `services.nixloom.configFile` and
-`assetLockFile` provide explicit override points. Secrets live in `.env` under
-the writable state directory:
+The packaged `config.yaml` is the default runtime profile. On first activation
+the module copies it to `~/.config/nixloom/config.yaml`; from then on that
+user-owned file is the single source of truth.
+`services.nixloom.configFile` provides a declarative override point.
 
-```text
-TAVILY_API_KEY=...
-SILLYTAVERN_AUTH_PASSWORD=...
-CIVITAI_API_TOKEN=...
+Credentials live only in the private `config.yaml` — never in the repository
+or an environment file:
+
+```yaml
+credentials:
+  tavily_api_key: ...
+  civitai_api_token: ...
+sillytavern:
+  auth_password: ...
 ```
 
-Host identity and exposure settings live in that same `.env`; secrets and
-machine-local values share one owner, backup policy and service lifecycle.
+Host identity and exposure settings live in that same private file; secrets
+and machine-local values share one owner, backup policy and service lifecycle.
 This keeps personal IP addresses, DNS names and usernames out of the reusable
 profile without introducing a second override layer:
 
-```text
-NIXLOOM_REMOTE=true
-NIXLOOM_WEBUI_ORIGINS='http://127.0.0.1:3000;https://ai.example.net'
-SILLYTAVERN_AUTH_USER=alice
+```yaml
+deployment:
+  remote: true
+webui:
+  cors_allow_origins:
+    - http://127.0.0.1:3000
+    - https://ai.example.net
+sillytavern:
+  auth_user: alice
 ```
 
 The committed defaults bind frontends only to loopback. Remote exposure is
-opt-in and requires authentication. `NIXLOOM_ROOT` is an internal name for the
-writable state directory, not a source checkout.
+opt-in and requires authentication. The writable directories are user data,
+not a source checkout.
 
 The contract has no model registry, inheritance layer, service-local default,
 or duplicated Nix option for model settings:
@@ -147,12 +167,15 @@ or duplicated Nix option for model settings:
   systemd `ExecCondition`.
 - `webui:`, `hermes:` and `sillytavern:` own frontend behavior only.
 - unknown and missing config keys fail validation.
-- config model paths and the asset lock must match exactly.
+- model paths may be absolute or relative to the data directory; the optional
+  `assets:` manifest pins files for `nixloom models download` and never
+  restricts models you add yourself.
 
-Mutable state remains under the state directory (`.webui`, `.sillytavern`,
-`.hermes`, `.hf`, `models`). Executables, default configuration and
-dependencies come from the Nix store, so services never execute mutable
-repository scripts.
+Model weights live under the data directory (`models`, `.hf`). Frontend state
+lives under the state directory (`.webui`, `.sillytavern`, `.hermes`), and
+re-downloadable caches under the cache directory. Executables, default
+configuration and dependencies come from the Nix store, so services never
+execute mutable repository scripts.
 
 ## One model, three capabilities
 
@@ -201,18 +224,19 @@ affinity. Results are gitignored under `.benchmarks/`.
 
 ## Networking and isolation
 
-With `NIXLOOM_REMOTE=true`, Open WebUI and SillyTavern bind remotely and require
-authentication. The model API and Hermes remain on loopback. Restrict the
-frontend ports in the host firewall; the reference deployment exposes them
+With `deployment.remote: true`, Open WebUI and SillyTavern bind remotely and
+require authentication. The model API and Hermes remain on loopback. Restrict
+the frontend ports in the host firewall; the reference deployment exposes them
 only on Tailscale.
 
-Hermes runs inside bubblewrap. The rest of `/home` and `.env` are hidden, the
-repository config and Git metadata are read-only, and its executable launchers
-come from the immutable Nix store.
+Hermes runs inside bubblewrap. The rest of `/home` and the private
+`config.yaml` (and its credentials) are hidden, and its executable launchers
+and packaged config template come from the immutable Nix store.
 
 ## Backup contents
 
-Backups contain Open WebUI accounts/chats, SillyTavern state, Hermes memory
-and secrets. Models, caches, logs and all Nix-provided software are excluded.
+Backups contain your private `config.yaml`, Open WebUI accounts/chats,
+SillyTavern state, Hermes memory and the WebUI secret. Models, caches, logs and
+all Nix-provided software are excluded.
 Archives default to `~/backups/nixloom` with mode 0600. Keep a separate offline
 copy of model assets only if upstream deletion is a concern.

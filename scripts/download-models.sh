@@ -2,13 +2,13 @@
 set -euo pipefail
 
 NIXLOOM_LIBEXEC="${NIXLOOM_LIBEXEC:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)}"
-PROJECT_DIR="${NIXLOOM_ROOT:-${NIXLOOM_LIBEXEC}}"
+DATA_DIR="${NIXLOOM_DATA_DIR:-${XDG_DATA_HOME:-${HOME}/.local/share}/nixloom}"
 # shellcheck source=config/lib.sh
 source "${NIXLOOM_LIBEXEC}/config/lib.sh"
 
-LOCK_FILE="${NIXLOOM_ASSET_LOCK_FILE:-${NIXLOOM_LIBEXEC}/config/models.lock.yaml}"
 MODE="download"
 declare -a REQUESTED=()
+CONFIG_ARG=""
 
 # The token is written to curl's stdin as a config file rather than passed as
 # -H on the command line: argv is world-readable through /proc for as long as
@@ -31,7 +31,7 @@ usage() {
   cat <<'EOF'
 Usage: ./scripts/download-models.sh [--check] [ASSET...]
 
-Downloads assets pinned in the configured asset lock and verifies exact size
+Downloads assets pinned in the configured config.yaml and verifies exact size
 and SHA256. With no ASSET arguments, processes every asset.
 
 Options:
@@ -55,6 +55,11 @@ while [[ $# -gt 0 ]]; do
       usage
       exit 0
       ;;
+    --config)
+      require_opt_value "$1" $#
+      CONFIG_ARG="$2"
+      shift 2
+      ;;
     -*)
       printf 'Unknown option: %s\n' "$1" >&2
       usage >&2
@@ -67,17 +72,12 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
-if [[ ! -f "${LOCK_FILE}" ]]; then
-  printf 'Missing asset lock file: %s\n' "${LOCK_FILE}" >&2
-  exit 2
-fi
-
-# After argument parsing, so --help never sources .env. civitai downloads need
-# an account API token (CIVITAI_API_TOKEN).
-load_env_file "${PROJECT_DIR}"
+resolve_config_file "${CONFIG_ARG}"
+check_assets
+CIVITAI_API_TOKEN="$(cfg '.credentials.civitai_api_token' '')"
 
 if (( ${#REQUESTED[@]} == 0 )); then
-  mapfile -t REQUESTED < <(yq -r '.assets | keys | .[]' "${LOCK_FILE}")
+  mapfile -t REQUESTED < <(yq -r '.assets | keys | .[]' "${NIXLOOM_CONFIG_FILE}")
 fi
 
 verify_file() {
@@ -96,26 +96,26 @@ verify_file() {
 failures=0
 for asset in "${REQUESTED[@]}"; do
   # strenv keeps the asset name a value, not part of the yq expression.
-  if [[ "$(ASSET="${asset}" yq -r '.assets | has(strenv(ASSET))' "${LOCK_FILE}")" != "true" ]]; then
+  if [[ "$(ASSET="${asset}" yq -r '.assets | has(strenv(ASSET))' "${NIXLOOM_CONFIG_FILE}")" != "true" ]]; then
     printf 'Unknown asset: %s\n' "${asset}" >&2
     failures=1
     continue
   fi
 
-  relative_path="$(ASSET="${asset}" yq -r '.assets[strenv(ASSET)].path' "${LOCK_FILE}")"
-  url="$(ASSET="${asset}" yq -r '.assets[strenv(ASSET)].url' "${LOCK_FILE}")"
-  expected_size="$(ASSET="${asset}" yq -r '.assets[strenv(ASSET)].size' "${LOCK_FILE}")"
-  expected_sha="$(ASSET="${asset}" yq -r '.assets[strenv(ASSET)].sha256' "${LOCK_FILE}")"
-  target="${PROJECT_DIR}/${relative_path}"
+  relative_path="$(ASSET="${asset}" yq -r '.assets[strenv(ASSET)].path' "${NIXLOOM_CONFIG_FILE}")"
+  url="$(ASSET="${asset}" yq -r '.assets[strenv(ASSET)].url' "${NIXLOOM_CONFIG_FILE}")"
+  expected_size="$(ASSET="${asset}" yq -r '.assets[strenv(ASSET)].size' "${NIXLOOM_CONFIG_FILE}")"
+  expected_sha="$(ASSET="${asset}" yq -r '.assets[strenv(ASSET)].sha256' "${NIXLOOM_CONFIG_FILE}")"
+  target="${DATA_DIR}/${relative_path}"
 
   # A missing size would otherwise reach the arithmetic below as the bare word
   # `null`, which bash reads as 0 — every .part would look complete, get
   # deleted, and the asset would fail only after two full downloads.
-  if ! [[ "${expected_size}" =~ ^[1-9][0-9]*$ ]] \
+  if ! valid_asset_path "${relative_path}" \
+    || ! [[ "${expected_size}" =~ ^[1-9][0-9]*$ ]] \
     || ! [[ "${expected_sha}" =~ ^[0-9a-f]{64}$ ]] \
-    || [[ -z "${relative_path}" || "${relative_path}" == "null" ]] \
-    || [[ -z "${url}" || "${url}" == "null" ]]; then
-    printf 'Asset %s is missing a valid path/url/size/sha256 in %s\n' "${asset}" "${LOCK_FILE}" >&2
+    || ! [[ "${url}" =~ ^https?://[^[:space:]]+$ ]]; then
+    printf 'Asset %s is missing a valid path/url/size/sha256 in %s\n' "${asset}" "${NIXLOOM_CONFIG_FILE}" >&2
     failures=1
     continue
   fi
@@ -147,7 +147,7 @@ for asset in "${REQUESTED[@]}"; do
   fi
 
   if [[ "${url}" == https://civitai.com/* && -z "${CIVITAI_API_TOKEN:-}" ]]; then
-    printf 'note: %s needs CIVITAI_API_TOKEN in .env if the download returns 401.\n' "${asset}" >&2
+    printf 'note: %s needs credentials.civitai_api_token in config.yaml if the download returns 401.\n' "${asset}" >&2
   fi
 
   printf 'downloading %-14s %s\n' "${asset}" "${relative_path}"

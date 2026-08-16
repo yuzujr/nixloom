@@ -2,7 +2,9 @@
 set -euo pipefail
 
 NIXLOOM_LIBEXEC="${NIXLOOM_LIBEXEC:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)}"
-PROJECT_DIR="${NIXLOOM_ROOT:-${NIXLOOM_LIBEXEC}}"
+STATE_DIR="${NIXLOOM_STATE_DIR:-${XDG_STATE_HOME:-${HOME}/.local/state}/nixloom}"
+DATA_DIR="${NIXLOOM_DATA_DIR:-${XDG_DATA_HOME:-${HOME}/.local/share}/nixloom}"
+CACHE_DIR="${NIXLOOM_CACHE_DIR:-${XDG_CACHE_HOME:-${HOME}/.cache}/nixloom}"
 # shellcheck source=config/lib.sh
 source "${NIXLOOM_LIBEXEC}/config/lib.sh"
 
@@ -60,13 +62,13 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
-resolve_config_file "${PROJECT_DIR}" "${CONFIG_ARG}"
-use_project_caches "${PROJECT_DIR}"
+resolve_config_file "${CONFIG_ARG}"
+use_runtime_paths "${STATE_DIR}" "${DATA_DIR}" "${CACHE_DIR}"
 
 PORT="${PORT:-$(cfg_required '.ports.llama' 'ports.llama')}"
 SD="$(cfg_bool_required '.images.enabled' 'images.enabled')"
 MODEL_ID="$(llm_id)"
-SWAP_CONFIG_FILE="${PROJECT_DIR}/.cache/llama-swap.yaml"
+SWAP_CONFIG_FILE="${CACHE_DIR}/llama-swap.yaml"
 
 # ${PORT} below is a llama-swap macro, not a shell variable: llama-swap picks
 # a free internal port per model. No groups section: llama-swap's default is
@@ -85,7 +87,7 @@ models:
 # model entry that simply never starts, and llama-swap reports only that the
 # model is failing — so reject it here, where the cause is still visible.
 if [[ "${NIXLOOM_LIBEXEC}" == *[[:space:]]* || "${NIXLOOM_CONFIG_FILE}" == *[[:space:]]* ]]; then
-  printf 'llama-swap splits the generated cmd on whitespace; the project path and config path must not contain any.\n' >&2
+  printf 'llama-swap splits the generated cmd on whitespace; the launcher and config paths must not contain any.\n' >&2
   printf '  launcher: %s\n  config:   %s\n' "${NIXLOOM_LIBEXEC}" "${NIXLOOM_CONFIG_FILE}" >&2
   exit 2
 fi

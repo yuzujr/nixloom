@@ -1,18 +1,21 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# Back up the irreplaceable state that git ignores: chats, accounts,
-# characters, Hermes memory and the secrets. Models and caches are excluded —
-# they re-download via `nixloom models download`.
+# Back up the irreplaceable user-owned config and runtime state: chats,
+# accounts, characters, Hermes memory and the WebUI secret. Models and caches
+# are excluded; models re-download via `nixloom models download`.
 #
-# The archive contains .env and .webui_secret_key, so every file this script
-# creates is private to the invoking user.
+# The archive contains config.yaml and .webui_secret_key, so every file this
+# script creates is private to the invoking user.
 umask 077
 
 NIXLOOM_LIBEXEC="${NIXLOOM_LIBEXEC:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)}"
-PROJECT_DIR="${NIXLOOM_ROOT:-${NIXLOOM_LIBEXEC}}"
+STATE_DIR="${NIXLOOM_STATE_DIR:-${XDG_STATE_HOME:-${HOME}/.local/state}/nixloom}"
 # shellcheck source=config/lib.sh
 source "${NIXLOOM_LIBEXEC}/config/lib.sh"
+resolve_config_file ""
+CONFIG_FILE="${NIXLOOM_CONFIG_FILE}"
+CONFIG_DIR="$(dirname "${CONFIG_FILE}")"
 
 DEFAULT_DEST="${NIXLOOM_BACKUP_DIR:-${HOME}/backups/nixloom}"
 FORCE=0
@@ -22,11 +25,12 @@ usage() {
   cat <<EOF
 Usage: ./scripts/backup.sh [--force] [DEST_DIR]
 
-Archives the gitignored state that cannot be re-downloaded:
+Archives the user config and state that cannot be re-downloaded:
+  config.yaml             NixLoom settings, credentials and asset manifest
   .webui/data             Open WebUI chats and accounts
   .sillytavern/xdg-data   SillyTavern characters, chats, personas
   .hermes                 Hermes memory, skills, sessions
-  .env .webui_secret_key  runtime secrets
+  .webui_secret_key       WebUI runtime secret
 
 SQLite databases are copied through SQLite's online backup API rather than
 read off disk, so the archive never contains a torn .db/-wal pair. The
@@ -40,8 +44,9 @@ Options:
 DEST_DIR defaults to ${DEFAULT_DEST}
 (override with the NIXLOOM_BACKUP_DIR environment variable).
 
-Restore by extracting into the writable state directory:
-  tar -xzf DEST_DIR/nixloom-<timestamp>.tar.gz -C ${PROJECT_DIR}
+Restore config into the config directory and state into the state directory:
+  tar -xzf DEST_DIR/nixloom-<timestamp>.tar.gz -C ${CONFIG_DIR} config.yaml
+  tar -xzf DEST_DIR/nixloom-<timestamp>.tar.gz -C ${STATE_DIR} --strip-components=1 state
 EOF
 }
 
@@ -89,20 +94,22 @@ candidates=(
   .webui/data
   .sillytavern/xdg-data
   .hermes
-  .env
   .webui_secret_key
 )
 entries=()
 for entry in "${candidates[@]}"; do
-  if [[ -e "${PROJECT_DIR}/${entry}" ]]; then
-    entries+=("${entry}")
+  if [[ -e "${STATE_DIR}/${entry}" ]]; then
+    entries+=("state/${entry}")
   else
     printf 'skipping %s (not present)\n' "${entry}"
   fi
 done
+if [[ -f "${CONFIG_FILE}" && "${CONFIG_FILE}" != "${NIXLOOM_SHARE:-${NIXLOOM_LIBEXEC}}/config.yaml" ]]; then
+  entries+=("config.yaml")
+fi
 
 if (( ${#entries[@]} == 0 )); then
-  printf 'Nothing to back up; no state directories exist yet.\n' >&2
+  printf 'Nothing to back up; no config or state directories exist yet.\n' >&2
   exit 1
 fi
 
@@ -128,10 +135,16 @@ STAGE="$(mktemp -d)"
 # Hardlink the tree instead of copying it: the archive is assembled from a
 # single directory (tar's --exclude is global, so it cannot skip the live
 # databases in one source while keeping the snapshots from another).
+mkdir -p "${STAGE}/state"
 for entry in "${entries[@]}"; do
-  mkdir -p "${STAGE}/$(dirname "${entry}")"
-  cp -a --link "${PROJECT_DIR}/${entry}" "${STAGE}/${entry}" 2>/dev/null \
-    || cp -a "${PROJECT_DIR}/${entry}" "${STAGE}/${entry}"
+  if [[ "${entry}" == config.yaml ]]; then
+    cp -a "${CONFIG_FILE}" "${STAGE}/config.yaml"
+  else
+    source_entry="${STATE_DIR}/${entry#state/}"
+    mkdir -p "${STAGE}/$(dirname "${entry}")"
+    cp -a --link "${source_entry}" "${STAGE}/${entry}" 2>/dev/null \
+      || cp -a "${source_entry}" "${STAGE}/${entry}"
+  fi
 done
 
 # The -wal/-shm sidecars belong to the live databases; the snapshots below are
@@ -163,18 +176,17 @@ if command -v python3 >/dev/null && python3 -c 'import sqlite3' 2>/dev/null; the
     # Break the hardlink before writing, or the snapshot would be written
     # straight into the live database.
     rm -f -- "${staged_db}"
-    if snapshot_db "${PROJECT_DIR}/${rel}" "${staged_db}"; then
+    if snapshot_db "${STATE_DIR}/${rel#state/}" "${staged_db}"; then
       printf 'snapshot %s\n' "${rel}"
     else
       printf 'warning: %s is not readable as SQLite; copying the raw file.\n' "${rel}" >&2
-      cp -a "${PROJECT_DIR}/${rel}" "${staged_db}"
+      cp -a "${STATE_DIR}/${rel#state/}" "${staged_db}"
     fi
   done < <(find "${STAGE}" -name '*.db' -type f -print0)
   # A clean close leaves no journal behind, but never ship one if it appears.
   find "${STAGE}" \( -name '*.db-wal' -o -name '*.db-shm' \) -delete
 else
   printf 'warning: python3 with the sqlite3 module is unavailable; databases are copied as raw files.\n' >&2
-  printf 'warning: run this inside `nix develop` for a consistent snapshot.\n' >&2
 fi
 
 mkdir -p "${DEST}"
@@ -191,4 +203,5 @@ mv -- "${archive_tmp}" "${archive}"
 archive_tmp=""
 
 printf 'backup written: %s (%s)\n' "${archive}" "$(du -h "${archive}" | cut -f1)"
-printf 'restore with:   tar -xzf %q -C %q\n' "${archive}" "${PROJECT_DIR}"
+printf 'restore config: tar -xzf %q -C %q config.yaml\n' "${archive}" "${CONFIG_DIR}"
+printf 'restore state:  tar -xzf %q -C %q --strip-components=1 state\n' "${archive}" "${STATE_DIR}"

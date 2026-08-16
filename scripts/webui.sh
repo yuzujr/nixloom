@@ -2,7 +2,9 @@
 set -euo pipefail
 
 NIXLOOM_LIBEXEC="${NIXLOOM_LIBEXEC:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)}"
-PROJECT_DIR="${NIXLOOM_ROOT:-${NIXLOOM_LIBEXEC}}"
+STATE_DIR="${NIXLOOM_STATE_DIR:-${XDG_STATE_HOME:-${HOME}/.local/state}/nixloom}"
+MODEL_DATA_DIR="${NIXLOOM_DATA_DIR:-${XDG_DATA_HOME:-${HOME}/.local/share}/nixloom}"
+CACHE_DIR="${NIXLOOM_CACHE_DIR:-${XDG_CACHE_HOME:-${HOME}/.cache}/nixloom}"
 # shellcheck source=config/lib.sh
 source "${NIXLOOM_LIBEXEC}/config/lib.sh"
 
@@ -47,19 +49,10 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
-resolve_config_file "${PROJECT_DIR}" "${CONFIG_ARG}"
-use_project_caches "${PROJECT_DIR}"
-load_env_file "${PROJECT_DIR}"
+resolve_config_file "${CONFIG_ARG}"
+use_runtime_paths "${STATE_DIR}" "${MODEL_DATA_DIR}" "${CACHE_DIR}"
 
-REMOTE="${NIXLOOM_REMOTE:-$(cfg_bool_required '.deployment.remote' 'deployment.remote')}"
-case "${REMOTE,,}" in
-  1|true|yes|on) REMOTE=1 ;;
-  0|false|no|off) REMOTE=0 ;;
-  *)
-    printf 'NIXLOOM_REMOTE must be a boolean (got %q).\n' "${REMOTE}" >&2
-    exit 2
-    ;;
-esac
+REMOTE="$(cfg_bool_required '.deployment.remote' 'deployment.remote')"
 PORT="$(cfg_required '.ports.webui' 'ports.webui')"
 LLAMA_PORT="$(cfg_required '.ports.llama' 'ports.llama')"
 LLAMA_URL="http://127.0.0.1:${LLAMA_PORT}/v1"
@@ -71,8 +64,9 @@ WEB_SEARCH="$(cfg_bool_required '.webui.web_search' 'webui.web_search')"
 WEB_SEARCH_RESULT_COUNT="$(cfg_required '.webui.web_search_results' 'webui.web_search_results')"
 COMPACTION_THRESHOLD="$(cfg_required '.webui.compaction_threshold' 'webui.compaction_threshold')"
 COMPACTION_MARGIN="$(cfg_required '.webui.compaction_margin' 'webui.compaction_margin')"
-if [[ "${WEB_SEARCH}" == "1" && -z "${TAVILY_API_KEY:-}" ]]; then
-  printf 'warning: TAVILY_API_KEY is absent; web search is disabled.\n' >&2
+TAVILY_API_KEY="$(cfg '.credentials.tavily_api_key' '')"
+if [[ "${WEB_SEARCH}" == "1" && -z "${TAVILY_API_KEY}" ]]; then
+  printf 'warning: credentials.tavily_api_key is absent; web search is disabled.\n' >&2
   WEB_SEARCH=0
 fi
 SYSTEM_PROMPT="$(webui_system_prompt)"
@@ -83,11 +77,7 @@ fi
 MAX_TOKENS="$(llm_max_tokens)"
 THINKING_MAX_TOKENS="$(llm_cfg '.thinking_max_tokens')"
 THINKING_SAMPLING="$(yq -o=json -I0 '.llm.thinking_sampling' "${NIXLOOM_CONFIG_FILE}")"
-if [[ -n "${NIXLOOM_WEBUI_ORIGINS:-}" ]]; then
-  IFS=';' read -r -a CORS_ALLOW_ORIGINS <<<"${NIXLOOM_WEBUI_ORIGINS}"
-else
-  mapfile -t CORS_ALLOW_ORIGINS < <(cfg_list '.webui.cors_allow_origins')
-fi
+mapfile -t CORS_ALLOW_ORIGINS < <(cfg_list '.webui.cors_allow_origins')
 if (( ${#CORS_ALLOW_ORIGINS[@]} == 0 )); then
   CORS_ALLOW_ORIGINS=("http://127.0.0.1:${PORT}" "http://localhost:${PORT}")
 fi
@@ -163,7 +153,7 @@ MODEL_CONFIG_JSON="$(jq -cn \
 DEFAULT_MODEL_PARAMS='{}'
 DEFAULT_MODEL_METADATA="$(jq -cn --argjson tools "${BUILTIN_TOOLS}" '{builtinTools: $tools}')"
 
-STATE_DIR="${PROJECT_DIR}/.webui"
+WEBUI_STATE_DIR="${STATE_DIR}/.webui"
 
 bool_env() {
   if [[ "$1" == "1" ]]; then
@@ -188,10 +178,10 @@ if [[ "${REMOTE}" == "1" ]]; then
   done
 fi
 
-export STATIC_DIR="${STATE_DIR}/static"
-export DATA_DIR="${STATE_DIR}/data"
-export HF_HOME="${STATE_DIR}/hf_home"
-export SENTENCE_TRANSFORMERS_HOME="${STATE_DIR}/transformers_home"
+export STATIC_DIR="${WEBUI_STATE_DIR}/static"
+export DATA_DIR="${WEBUI_STATE_DIR}/data"
+export HF_HOME="${CACHE_DIR}/.hf"
+export SENTENCE_TRANSFORMERS_HOME="${CACHE_DIR}/.transformers"
 export WEBUI_URL="${WEBUI_PUBLIC_URL}"
 export WEBUI_NAME="NixLoom"
 export ENABLE_PERSISTENT_CONFIG="False"
@@ -298,14 +288,15 @@ if [[ "${DRY_RUN}" == "1" ]]; then
   exit 0
 fi
 
-mkdir -p "${STATE_DIR}/data" "${STATE_DIR}/static" "${STATE_DIR}/hf_home" "${STATE_DIR}/transformers_home"
+mkdir -p "${WEBUI_STATE_DIR}/data" "${WEBUI_STATE_DIR}/static" \
+  "${CACHE_DIR}/.hf" "${CACHE_DIR}/.transformers"
 
 # Open WebUI creates both of these with the ambient umask (0644/0755 by
 # default). The secret key signs session JWTs — anyone who can read it can mint
 # a session — and webui.db holds the chats and account password hashes.
-chmod 700 "${STATE_DIR}/data" 2>/dev/null || true
-if [[ -f "${PROJECT_DIR}/.webui_secret_key" ]]; then
-  chmod 600 "${PROJECT_DIR}/.webui_secret_key" 2>/dev/null || true
+chmod 700 "${WEBUI_STATE_DIR}/data" 2>/dev/null || true
+if [[ -f "${STATE_DIR}/.webui_secret_key" ]]; then
+  chmod 600 "${STATE_DIR}/.webui_secret_key" 2>/dev/null || true
 fi
 
 # Best-effort: the sync writes into Open WebUI's private schema, and a failed

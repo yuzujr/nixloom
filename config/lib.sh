@@ -1,27 +1,17 @@
 #!/usr/bin/env bash
 
-# Shared config access for NixLoom's internal launchers. The tracked
-# config.yaml owns runtime behavior; .env is the narrow secret and host-identity
-# boundary. Config resolution order: --config flag, inherited
-# NIXLOOM_CONFIG_FILE, a development checkout, then the packaged default.
+# Shared config access for NixLoom's internal launchers. The user-owned
+# config.yaml lives under XDG_CONFIG_HOME/nixloom, model data under
+# XDG_DATA_HOME/nixloom, runtime state under XDG_STATE_HOME/nixloom, and
+# re-downloadable caches under XDG_CACHE_HOME/nixloom.
+# Resolution order is --config, NIXLOOM_CONFIG_FILE, user config, then the
+# packaged template.
 
 # require_opt_value <option> <argc> - fail unless the option has a value.
 require_opt_value() {
   if (( $2 < 2 )); then
     printf '%s requires a value\n' "$1" >&2
     exit 2
-  fi
-}
-
-# load_env_file <project_dir> - export variables from the gitignored host file.
-# Secrets and machine-specific identity live together because they have the
-# same ownership, backup policy and service lifecycle.
-load_env_file() {
-  if [[ -f "$1/.env" ]]; then
-    set -a
-    # shellcheck disable=SC1091
-    source "$1/.env"
-    set +a
   fi
 }
 
@@ -45,14 +35,15 @@ is_integer() {
 }
 
 resolve_config_file() {
-  local project_dir="$1"
-  local explicit="${2:-}"
+  local explicit="${1:-}"
 
   if [[ -n "${explicit}" ]]; then
     NIXLOOM_CONFIG_FILE="${explicit}"
   elif [[ -z "${NIXLOOM_CONFIG_FILE:-}" ]]; then
-    if [[ -f "${project_dir}/config.yaml" ]]; then
-      NIXLOOM_CONFIG_FILE="${project_dir}/config.yaml"
+    if [[ -f "${XDG_CONFIG_HOME:-${HOME}/.config}/nixloom/config.yaml" ]]; then
+      NIXLOOM_CONFIG_FILE="${XDG_CONFIG_HOME:-${HOME}/.config}/nixloom/config.yaml"
+    elif [[ -f "${NIXLOOM_SHARE:-${NIXLOOM_LIBEXEC}}/config.yaml" ]]; then
+      NIXLOOM_CONFIG_FILE="${NIXLOOM_SHARE:-${NIXLOOM_LIBEXEC}}/config.yaml"
     else
       NIXLOOM_CONFIG_FILE="${NIXLOOM_LIBEXEC}/config.yaml"
     fi
@@ -69,6 +60,20 @@ resolve_config_file() {
     return 2
   fi
   export NIXLOOM_CONFIG_FILE
+}
+
+# Asset paths are relative to the model data directory so the config can be
+# moved independently from downloaded weights. Only segment-level checks are
+# safe: a filename such as `foo..bar` is valid, while a `..` segment is not.
+valid_asset_path() {
+  local path="$1" segment
+  [[ -n "${path}" && "${path}" != /* ]] || return 1
+  [[ "${path}" != *"\\"* && "${path}" != *$'\n'* ]] || return 1
+  IFS='/' read -r -a segments <<<"${path}"
+  for segment in "${segments[@]}"; do
+    [[ -n "${segment}" && "${segment}" != "." && "${segment}" != ".." ]] || return 1
+  done
+  return 0
 }
 
 # cfg <yq-expr> [default] - print a scalar; empty/null falls back to default.
@@ -157,13 +162,14 @@ webui_system_prompt() {
     'webui.web_search')" || return 2
   builtin_web_search="$(cfg_bool_required '.webui.builtin_tools.web_search' \
     'webui.builtin_tools.web_search')" || return 2
+  tavily_api_key="$(cfg '.credentials.tavily_api_key' '')"
   images_enabled="$(cfg_bool_required '.images.enabled' 'images.enabled')" || return 2
   builtin_image_generation="$(cfg_bool_required \
     '.webui.builtin_tools.image_generation' \
     'webui.builtin_tools.image_generation')" || return 2
 
   if [[ "${web_search_enabled}" == "1" && "${builtin_web_search}" == "1" \
-    && -n "${TAVILY_API_KEY:-}" ]]; then
+    && -n "${tavily_api_key}" ]]; then
     sections+=(web_search)
   fi
   if [[ "${images_enabled}" == "1" && "${builtin_image_generation}" == "1" ]]; then
@@ -265,12 +271,51 @@ _check_section_keys() {
   return "${bad}"
 }
 
+# check_assets - validate the user-owned asset manifest. Asset entries are
+# validated as a whole so downloaders can construct paths only after the
+# configured data root has been proven safe.
+check_assets() {
+  local name path url size sha256 failed=0
+  declare -A seen_paths=()
+  while IFS= read -r name; do
+    path="$(yq -r ".assets.\"${name}\".path // \"\"" "${NIXLOOM_CONFIG_FILE}")"
+    url="$(yq -r ".assets.\"${name}\".url // \"\"" "${NIXLOOM_CONFIG_FILE}")"
+    size="$(yq -r ".assets.\"${name}\".size // \"\"" "${NIXLOOM_CONFIG_FILE}")"
+    sha256="$(yq -r ".assets.\"${name}\".sha256 // \"\"" "${NIXLOOM_CONFIG_FILE}")"
+
+    if ! valid_asset_path "${path}"; then
+      printf 'Asset %s has an invalid path (must be relative and contain no . or .. segments): %s\n' \
+        "${name}" "${path}" >&2
+      failed=1
+    elif [[ -n "${seen_paths[${path}]+x}" ]]; then
+      printf 'Asset %s duplicates the path %s.\n' "${name}" "${path}" >&2
+      failed=1
+    else
+      seen_paths["${path}"]=1
+    fi
+
+    if ! [[ "${url}" =~ ^https?://[^[:space:]]+$ ]]; then
+      printf 'Asset %s has an invalid URL: %s\n' "${name}" "${url}" >&2
+      failed=1
+    fi
+    if ! [[ "${size}" =~ ^[1-9][0-9]*$ ]]; then
+      printf 'Asset %s has an invalid size (positive integer required): %s\n' "${name}" "${size}" >&2
+      failed=1
+    fi
+    if ! [[ "${sha256}" =~ ^[0-9a-f]{64}$ ]]; then
+      printf 'Asset %s has an invalid SHA-256 value.\n' "${name}" >&2
+      failed=1
+    fi
+  done < <(yq -r '(.assets // {}) | keys | .[]' "${NIXLOOM_CONFIG_FILE}")
+  return "${failed}"
+}
+
 # check_config_keys - fail on unknown keys anywhere in config.yaml, so a
 # typo'd key cannot silently fall back to a script default.
 check_config_keys() {
   local failed=0 name
   _check_section_keys '.' \
-    'deployment ports llm images webui hermes sillytavern' \
+    'deployment ports llm images webui hermes sillytavern credentials assets' \
     'the top level' || failed=1
   _check_section_keys '.deployment' 'remote frontends' 'deployment' || failed=1
   _check_section_keys '.ports' 'llama webui sillytavern hermes' 'ports' || failed=1
@@ -303,22 +348,25 @@ check_config_keys() {
   _check_section_keys '.hermes' 'self_improvement sandbox compression' 'hermes' || failed=1
   _check_section_keys '.hermes.compression' 'threshold abort_on_summary_failure' \
     'hermes.compression' || failed=1
-  if [[ "$(cfg '.sillytavern | has("auth_password")')" == "true" ]]; then
-    printf 'sillytavern.auth_password is no longer read from config.yaml; set SILLYTAVERN_AUTH_PASSWORD in .env instead.\n' >&2
-    failed=1
-  fi
-  _check_section_keys '.sillytavern' 'auth_user preset' \
+  _check_section_keys '.sillytavern' 'auth_user auth_password preset' \
     'sillytavern' || failed=1
+  _check_section_keys '.credentials' 'tavily_api_key civitai_api_token' \
+    'credentials' || failed=1
+  while IFS= read -r name; do
+    _check_section_keys ".assets.\"${name}\"" 'path url size sha256' \
+      "assets.${name}" || failed=1
+  done < <(yq -r '(.assets // {}) | keys | .[]' "${NIXLOOM_CONFIG_FILE}")
+  check_assets || failed=1
   if (( failed )); then
     printf 'Unknown config keys are errors so typos cannot silently use defaults.\n' >&2
     return 2
   fi
 }
 
-# use_project_caches <project_dir> - keep every cache inside the project so
-# the stack never writes outside its own directory. Respects values already
-# set in the environment (the dev shell sets the same ones).
-use_project_caches() {
-  export HF_HOME="${HF_HOME:-$1/.hf}"
-  export XDG_CACHE_HOME="${XDG_CACHE_HOME:-$1/.cache}"
+# use_runtime_paths <state_dir> <data_dir> <cache_dir> - keep model data under
+# the XDG data directory and re-downloadable caches under the XDG cache
+# directory. Respects values already set in the environment.
+use_runtime_paths() {
+  export HF_HOME="${HF_HOME:-$2/.hf}"
+  export XDG_CACHE_HOME="${XDG_CACHE_HOME:-$3}"
 }

@@ -2,7 +2,6 @@
 set -euo pipefail
 
 NIXLOOM_LIBEXEC="${NIXLOOM_LIBEXEC:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)}"
-PROJECT_DIR="${NIXLOOM_ROOT:-${NIXLOOM_LIBEXEC}}"
 
 usage() {
   cat <<'EOF'
@@ -62,7 +61,7 @@ case "${command_name}" in
       || "${prompt_profile}" == "actual" ]]; then
       # shellcheck source=config/lib.sh
       source "${NIXLOOM_LIBEXEC}/config/lib.sh"
-      resolve_config_file "${PROJECT_DIR}" ""
+      resolve_config_file ""
     fi
     if [[ "${has_base_url}" == "0" ]]; then
       llama_port="$(cfg_required '.ports.llama' 'ports.llama')"
