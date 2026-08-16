@@ -17,41 +17,6 @@
         vulkanSupport = false;
       };
       hermesPackage = hermes-agent.packages.${system}.default;
-      # open-webui propagates a Python 3.14 PYTHONPATH into mkShell, while
-      # Hermes is built with Python 3.12. Give Hermes its own DDGS/lxml path
-      # and remove it from the environment after interpreter startup so tool
-      # subprocesses do not inherit a foreign Python environment.
-      # Follow the interpreter hermes-agent was built with when the flake
-      # exposes it, so a Python bump upstream cannot silently mismatch the
-      # injected site-packages (lxml is a C extension; an ABI mismatch only
-      # fails at runtime).
-      hermesPython = hermesPackage.passthru.python or pkgs.python312;
-      hermesWebDeps = hermesPython.withPackages (ps: [
-        ps.ddgs
-        ps.lxml
-      ]);
-      hermesPythonCleanup = pkgs.writeTextDir "${hermesPython.sitePackages}/sitecustomize.py" ''
-        import os
-        import sys
-        os.environ.pop("PYTHONPATH", None)
-        # Upstream's uv2nix environment exposes python3.12 but currently sets
-        # HERMES_PYTHON to a non-existent bin/python3 path.
-        os.environ["HERMES_PYTHON"] = sys.executable
-      '';
-      hermesIsolated = pkgs.symlinkJoin {
-        name = "hermes-agent-isolated";
-        paths = [ hermesPackage ];
-        nativeBuildInputs = [ pkgs.makeWrapper ];
-        postBuild = ''
-          for command in hermes hermes-agent hermes-acp; do
-            if [[ -x "$out/bin/$command" ]]; then
-              wrapProgram "$out/bin/$command" \
-                --set PYTHONNOUSERSITE 1 \
-                --set PYTHONPATH "${hermesPythonCleanup}/${hermesPython.sitePackages}:${hermesWebDeps}/${hermesPython.sitePackages}"
-            fi
-          done
-        '';
-      };
       # Two nixpkgs 1.110 packaging fixes needed for image generation:
       # embd_res/ (CLIP tokenizer data, read from bin/embd_res via realpath)
       # is not installed — a backend-independent bug, so it is fixed for every
@@ -103,7 +68,7 @@
         pkgs.llama-swap
         pkgs.open-webui
         sillytavernPatched
-        hermesIsolated
+        hermesPackage
       ];
       runtimePackages = [ llamaCuda koboldCuda ] ++ commonPackages;
       source = builtins.path {

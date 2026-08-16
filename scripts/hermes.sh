@@ -61,6 +61,7 @@ if [[ "${SANDBOX}" == "1" ]]; then
 fi
 COMPRESSION_THRESHOLD="$(cfg_required '.hermes.compression.threshold' 'hermes.compression.threshold')"
 COMPRESSION_ABORT_ON_FAILURE="$(cfg_bool_required '.hermes.compression.abort_on_summary_failure' 'hermes.compression.abort_on_summary_failure')"
+TAVILY_API_KEY="$(cfg '.credentials.tavily_api_key' '')"
 
 HERMES_MODEL="$(llm_id)"
 check_hermes_ctx
@@ -145,6 +146,9 @@ config_content="model:
 compression:
   threshold: ${COMPRESSION_THRESHOLD}
   abort_on_summary_failure: ${compression_abort}
+web:
+  search_backend: tavily
+  extract_backend: tavily
 terminal:
   backend: local
   cwd: ${cwd_json}
@@ -185,6 +189,7 @@ if [[ "${SANDBOX}" == "1" ]]; then
     --ro-bind-try /run/current-system /run/current-system
     --bind "${STATE_DIR}" "${STATE_DIR}"
     --setenv HOME "${HERMES_HOME}/home"
+    --setenv TAVILY_API_KEY "${TAVILY_API_KEY}"
   )
   # Overlay read-only home files (e.g. .gitconfig) into the sandbox home so
   # git commits keep the user's identity; anything else in the real home stays
@@ -213,6 +218,11 @@ if [[ "${DRY_RUN}" == "1" ]]; then
   printf 'HERMES_SANDBOX=%q\n' "${SANDBOX}"
   printf 'HERMES_WORKSPACE=%q\n' "${HERMES_WORKSPACE[*]}"
   printf 'HERMES_HOME_RO=%q\n' "${HERMES_HOME_RO[*]}"
+  if [[ -n "${TAVILY_API_KEY}" ]]; then
+    printf 'TAVILY_API_KEY=<set>\n'
+  else
+    printf 'TAVILY_API_KEY=<missing>\n'
+  fi
   printf '%s' "${config_content}"
   printf '%q ' "${launcher[@]}" hermes gateway
   printf '\n'
@@ -234,5 +244,6 @@ export API_SERVER_HOST="${HERMES_HOST}"
 export API_SERVER_PORT="${HERMES_PORT}"
 export API_SERVER_KEY="${HERMES_GATEWAY_RUNTIME_KEY_VALUE}"
 export API_SERVER_MODEL_NAME=hermes-agent
+export TAVILY_API_KEY
 
 exec "${launcher[@]}" hermes gateway
