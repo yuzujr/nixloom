@@ -15,7 +15,7 @@ The reference profile targets an x86_64 NVIDIA laptop with 8 GiB of VRAM and
 - Open WebUI, Hermes Agent and SillyTavern frontends
 - A single `nixloom` command controls the whole stack
 - Config, models, state and caches live in separate XDG directories
-- No secret is required for a loopback-only first start
+- Fully local: everything runs over loopback on your machine
 
 ## Requirements
 
@@ -35,8 +35,8 @@ Add the flake input and import the Home Manager module:
 }
 ```
 
-The module installs the `nixloom` command and declares the systemd user
-services. Nothing starts until you run `nixloom start`.
+The module installs the `nixloom` command and the systemd user services;
+start them on demand with `nixloom start`.
 
 ## Quick start
 
@@ -59,15 +59,14 @@ nixloom start            # start services and warm the LLM
 | `nixloom bench` | Fixed performance/quality benchmark |
 | `nixloom backup [DEST]` | Snapshot config and state into a private archive |
 
-State-changing commands print a plan and ask before doing anything; pass
-`--yes` to run non-interactively, `--dry-run` to preview.
+State-changing commands show a plan and ask for confirmation first;
+`--dry-run` previews and `--yes` skips the prompt.
 
 ## Configuration
 
 The first activation copies the packaged `config.yaml` template to
-`~/.config/nixloom/config.yaml`; from then on that user-owned file is the
-single source of truth, including API credentials. `nixloom config init`
-creates it if you do not use the module.
+`~/.config/nixloom/config.yaml`; from then on that user-owned file is your
+config, including API credentials. `nixloom config init` creates it standalone.
 
 Key sections:
 
@@ -103,8 +102,8 @@ nixloom bench cpu           # CPU thread/CCD affinity matrix
 
 `nixloom backup` stops the services, snapshots your config, frontend
 databases, Hermes state and the WebUI secret into a verified private archive
-(default `~/backups/nixloom`). Models and caches are excluded and can be
-re-downloaded.
+(default `~/backups/nixloom`). Only config and state are archived; models and
+caches are re-downloadable.
 
 ## License
 
