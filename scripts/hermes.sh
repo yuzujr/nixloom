@@ -48,6 +48,11 @@ LLAMA_URL="http://127.0.0.1:${LLAMA_PORT}/v1"
 HERMES_HOME="${HERMES_HOME:-${STATE_DIR}/.hermes}"
 SELF_IMPROVEMENT="$(cfg_bool_required '.hermes.self_improvement' 'hermes.self_improvement')"
 SANDBOX="$(cfg_bool_required '.hermes.sandbox' 'hermes.sandbox')"
+# Directories the agent may read and modify for agentic coding; the terminal
+# tool starts in the first. Read-only home files (e.g. .gitconfig) are
+# overlaid into the sandbox home so git keeps the user's identity.
+mapfile -t HERMES_WORKSPACE < <(cfg_list '.hermes.workspace')
+mapfile -t HERMES_HOME_RO < <(cfg_list '.hermes.home_ro')
 
 if [[ "${SANDBOX}" == "1" ]]; then
   # Hermes only needs its gateway API and its own state; do not expose the
@@ -80,9 +85,38 @@ if [[ "${SANDBOX}" == "1" && "${HERMES_HOME}" != "${STATE_DIR}"/* ]]; then
   exit 2
 fi
 
+if [[ "${SANDBOX}" == "1" ]]; then
+  for dir in "${HERMES_WORKSPACE[@]}"; do
+    [[ -n "${dir}" ]] || continue
+    if [[ "${dir}" != /* ]]; then
+      printf 'hermes.workspace entries must be absolute paths: %s\n' "${dir}" >&2
+      exit 2
+    fi
+    if [[ "${dir}" == "${STATE_DIR}" || "${dir}" == "${STATE_DIR}"/* ]]; then
+      printf 'hermes.workspace must be outside the state directory: %s\n' "${dir}" >&2
+      exit 2
+    fi
+    if [[ ! -d "${dir}" ]]; then
+      printf 'hermes.workspace directory does not exist: %s\n' "${dir}" >&2
+      exit 2
+    fi
+  done
+  for f in "${HERMES_HOME_RO[@]}"; do
+    [[ -n "${f}" ]] || continue
+    if [[ "${f}" == /* || "${f}" == ".." || "${f}" == *"/../"* ]]; then
+      printf 'hermes.home_ro entries must be relative paths: %s\n' "${f}" >&2
+      exit 2
+    fi
+  done
+fi
+
+cwd_dir="${STATE_DIR}"
+if (( ${#HERMES_WORKSPACE[@]} > 0 )); then
+  cwd_dir="${HERMES_WORKSPACE[0]}"
+fi
 model_json="$(jq -Rn --arg value "${HERMES_MODEL}" '$value')"
 url_json="$(jq -Rn --arg value "${LLAMA_URL}" '$value')"
-cwd_json="$(jq -Rn --arg value "${STATE_DIR}" '$value')"
+cwd_json="$(jq -Rn --arg value "${cwd_dir}" '$value')"
 
 # Use explicit API-server toolsets so browser automation is not registered.
 # Web search remains enabled independently through the `web` toolset.
@@ -152,6 +186,22 @@ if [[ "${SANDBOX}" == "1" ]]; then
     --bind "${STATE_DIR}" "${STATE_DIR}"
     --setenv HOME "${HERMES_HOME}/home"
   )
+  # Overlay read-only home files (e.g. .gitconfig) into the sandbox home so
+  # git commits keep the user's identity; anything else in the real home stays
+  # invisible.
+  for f in "${HERMES_HOME_RO[@]}"; do
+    [[ -n "${f}" ]] || continue
+    if [[ -e "${HOME}/${f}" ]]; then
+      mkdir -p "${HERMES_HOME}/home/$(dirname "${f}")"
+      launcher+=(--ro-bind "${HOME}/${f}" "${HERMES_HOME}/home/${f}")
+    fi
+  done
+  # Bind the configured workspace read-write so the agent can edit code and
+  # run builds inside it.
+  for dir in "${HERMES_WORKSPACE[@]}"; do
+    [[ -n "${dir}" ]] || continue
+    launcher+=(--bind "${dir}" "${dir}")
+  done
   launcher+=(--setenv NIXLOOM_CONFIG_FILE /dev/null)
   launcher+=(--)
 fi
@@ -161,6 +211,8 @@ if [[ "${DRY_RUN}" == "1" ]]; then
   printf 'HERMES_MODEL=%q\n' "${HERMES_MODEL}"
   printf 'HERMES_API_URL=http://%s:%s/v1\n' "${HERMES_HOST}" "${HERMES_PORT}"
   printf 'HERMES_SANDBOX=%q\n' "${SANDBOX}"
+  printf 'HERMES_WORKSPACE=%q\n' "${HERMES_WORKSPACE[*]}"
+  printf 'HERMES_HOME_RO=%q\n' "${HERMES_HOME_RO[*]}"
   printf '%s' "${config_content}"
   printf '%q ' "${launcher[@]}" hermes gateway
   printf '\n'

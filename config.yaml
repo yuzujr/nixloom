@@ -118,6 +118,13 @@ webui:
   compaction_margin: 2048
 hermes:
   self_improvement: false
+  # Directories the agent may read and modify for agentic coding; the terminal
+  # tool starts in the first. Leave empty to confine the agent to its state.
+  workspace: []
+  # Read-only files from your home overlaid into the sandbox home (e.g.
+  # .gitconfig so commits carry your identity). SSH keys are only exposed if
+  # you list them here.
+  home_ro: [".gitconfig"]
   compression:
     threshold: 0.75
     abort_on_summary_failure: true

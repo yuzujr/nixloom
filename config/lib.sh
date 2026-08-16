@@ -271,6 +271,27 @@ _check_section_keys() {
   return "${bad}"
 }
 
+# check_hermes_sandbox_paths - the launcher builds bwrap binds from these
+# lists, so workspace entries must be absolute and home_ro entries relative.
+check_hermes_sandbox_paths() {
+  local dir f failed=0
+  while IFS= read -r dir; do
+    [[ -n "${dir}" ]] || continue
+    if [[ "${dir}" != /* ]]; then
+      printf 'hermes.workspace entries must be absolute paths: %s\n' "${dir}" >&2
+      failed=1
+    fi
+  done < <(cfg_list '.hermes.workspace')
+  while IFS= read -r f; do
+    [[ -n "${f}" ]] || continue
+    if [[ "${f}" == /* || "${f}" == ".." || "${f}" == *"/../"* ]]; then
+      printf 'hermes.home_ro entries must be relative paths: %s\n' "${f}" >&2
+      failed=1
+    fi
+  done < <(cfg_list '.hermes.home_ro')
+  return "${failed}"
+}
+
 # check_assets - validate the user-owned asset manifest. Asset entries are
 # validated as a whole so downloaders can construct paths only after the
 # configured data root has been proven safe.
@@ -345,7 +366,9 @@ check_config_keys() {
   _check_section_keys '.webui.builtin_tools' \
     'knowledge memory notes chats channels automations calendar code_interpreter tasks time web_search image_generation' \
     'webui.builtin_tools' || failed=1
-  _check_section_keys '.hermes' 'self_improvement sandbox compression' 'hermes' || failed=1
+  _check_section_keys '.hermes' \
+    'self_improvement sandbox compression workspace home_ro' 'hermes' || failed=1
+  check_hermes_sandbox_paths || failed=1
   _check_section_keys '.hermes.compression' 'threshold abort_on_summary_failure' \
     'hermes.compression' || failed=1
   _check_section_keys '.sillytavern' 'auth_user auth_password preset' \
