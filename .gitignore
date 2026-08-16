@@ -1,14 +1,6 @@
+# Development-only caches that stay in a checkout; runtime data now lives
+# under the XDG directories (see nix/home-manager.nix).
 .cache/
-.benchmarks/
-__pycache__/
 .direnv/
-.env
-.hf/
-.hermes/
-.run/
-.sillytavern/
-.webui/
-.webui_secret_key
-logs/
-models/
+__pycache__/
 result

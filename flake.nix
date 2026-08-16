@@ -238,17 +238,12 @@
             echo "publishable source contains a host-specific path or address" >&2
             exit 1
           fi
-          for private in .env .webui_secret_key; do
+          for private in .webui_secret_key; do
             if [[ -e "$private" ]]; then
               echo "publishable source contains private file: $private" >&2
               exit 1
             fi
           done
-          if find . -maxdepth 1 -type f -name '.env.*' \
-            ! -name '.env.example' -print -quit | grep -q .; then
-            echo "publishable source contains an unrecognized environment file" >&2
-            exit 1
-          fi
           if find . -type f \( \
             -name '*.gguf' -o -name '*.safetensors' -o -name '*.db' \
           \) -print -quit | grep -q .; then
