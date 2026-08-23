@@ -61,6 +61,7 @@ def check_models(config: Config, paths: RuntimePaths, requested: Iterable[str]) 
     passed = True
     for name, asset in selected_assets(config, requested):
         target = paths.data / asset["path"]
+        print(f"checking {name:<20} {asset['path']}", flush=True)
         if verify_asset(target, asset["size"], asset["sha256"]):
             print(f"verified {name:<20} {asset['path']}")
         else:
@@ -90,6 +91,7 @@ def download_models(
     passed = True
     for name, asset in selected_assets(config, requested):
         target = paths.data / asset["path"]
+        print(f"checking {name:<20} {asset['path']}", flush=True)
         if verify_asset(target, asset["size"], asset["sha256"]):
             print(f"verified {name:<20} {asset['path']}")
             continue

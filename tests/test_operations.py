@@ -1,7 +1,9 @@
 import base64
+import io
 import json
 import tempfile
 import unittest
+from contextlib import redirect_stdout
 from pathlib import Path
 from unittest.mock import patch
 
@@ -62,8 +64,12 @@ class OperationTests(unittest.TestCase):
                     ),
                 },
             )()
-            with patch(
-                "nixloom.operations.subprocess.run", side_effect=[installed, response]
+            with (
+                patch(
+                    "nixloom.operations.subprocess.run",
+                    side_effect=[installed, response],
+                ),
+                redirect_stdout(io.StringIO()),
             ):
                 _test_openclaw_agent(paths)
 

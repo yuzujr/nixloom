@@ -115,6 +115,12 @@ nixloom logs runtime --follow
 nixloom stop
 ```
 
+`start`, `restart`, and `stop` are idempotent. Startup reports service readiness
+and model-loading time instead of staying silent. `status` combines systemd,
+HTTP health, and the currently loaded model in one table; it exits nonzero when
+the stack is stopped or degraded. `logs all` merges the journals of every
+installed NixLoom service.
+
 `nixloom test` is the single useful live regression suite. It verifies exact
 chat/reasoning/vision results, decodes a generated image, swaps back to the LLM,
 and makes OpenClaw invoke a harmless shell tool. Use `--skip-image` or

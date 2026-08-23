@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import json
 import os
 import shutil
 import subprocess
@@ -10,9 +11,10 @@ import sys
 import time
 import urllib.error
 import urllib.request
+from dataclasses import dataclass
 from pathlib import Path
 
-from . import openclaw, operations, runtime, sillytavern
+from . import __version__, openclaw, operations, runtime, sillytavern
 from .config import Config, ConfigError, RuntimePaths
 
 UNIT_NAMES = {
@@ -21,6 +23,35 @@ UNIT_NAMES = {
     "sillytavern": "nixloom-sillytavern.service",
     "all": "nixloom.target",
 }
+
+
+@dataclass(frozen=True)
+class ServiceSpec:
+    name: str
+    unit: str
+    url: str
+    accepted: frozenset[int] = frozenset({200})
+
+
+@dataclass(frozen=True)
+class ServiceReport:
+    spec: ServiceSpec
+    active: str
+    sub: str
+    health: str
+
+    @property
+    def state(self) -> str:
+        if self.active == "failed":
+            return "failed"
+        if self.active in {"activating", "reloading"} or self.sub in {
+            "auto-restart",
+            "start",
+        }:
+            return "starting"
+        if self.active != "active":
+            return "stopped"
+        return "ready" if self.health == "ok" else "unhealthy"
 
 
 def _context(config_path: str | None = None) -> tuple[RuntimePaths, Config]:
@@ -40,9 +71,14 @@ def _unit_installed(name: str) -> bool:
     )
 
 
-def _probe(url: str, accepted: frozenset[int] = frozenset({200})) -> str:
+def _probe(
+    url: str,
+    accepted: frozenset[int] = frozenset({200}),
+    *,
+    timeout: float = 3,
+) -> str:
     try:
-        with urllib.request.urlopen(url, timeout=3) as response:
+        with urllib.request.urlopen(url, timeout=timeout) as response:
             return "ok" if response.status in accepted else f"HTTP {response.status}"
     except urllib.error.HTTPError as error:
         return "ok" if error.code in accepted else f"HTTP {error.code}"
@@ -50,65 +86,223 @@ def _probe(url: str, accepted: frozenset[int] = frozenset({200})) -> str:
         return "down"
 
 
-def _warm(config: Config) -> None:
-    port = config.integer("ports.llama", minimum=1)
-    health = f"http://127.0.0.1:{port}/health"
-    for _ in range(120):
-        if _probe(health) == "ok":
-            operations._json_request(
-                f"http://127.0.0.1:{port}/v1/chat/completions",
-                {
-                    "model": config.string("llm.id"),
-                    "messages": [{"role": "user", "content": "hi"}],
-                    "max_tokens": 1,
-                    "chat_template_kwargs": {"enable_thinking": False},
-                },
-                900,
-            )
-            return
-        time.sleep(1)
-    raise ConfigError("runtime proxy did not become healthy within 120 seconds")
-
-
-def command_start(args: argparse.Namespace) -> None:
-    _, config = _context(args.config)
-    verb = "restart" if args.restart else "start"
-    if args.dry_run:
-        print(f"systemctl --user {verb} nixloom.target")
-        print(f"warm model {config.string('llm.id')} through ports.llama")
-        return
-    operations.systemctl(verb, "nixloom.target")
-    _warm(config)
-    print("NixLoom is ready.")
-
-
-def command_status(args: argparse.Namespace) -> None:
-    _, config = _context(args.config)
-    for name in ("runtime", "openclaw", "sillytavern"):
-        if name != "runtime" and not _unit_installed(name):
-            continue
-        result = operations.systemctl(
-            "show", UNIT_NAMES[name], "-p", "ActiveState", "-p", "SubState", check=False
-        )
-        values = dict(
-            line.split("=", 1) for line in result.stdout.splitlines() if "=" in line
-        )
-        print(
-            f"{name:<12} {values.get('ActiveState', 'unknown'):<10} {values.get('SubState', 'unknown')}"
-        )
+def _service_specs(config: Config) -> list[ServiceSpec]:
     llama_port = config.integer("ports.llama", minimum=1)
-    print(
-        f"runtime      {_probe(f'http://127.0.0.1:{llama_port}/health'):<5} http://127.0.0.1:{llama_port}"
-    )
+    specs = [
+        ServiceSpec(
+            "runtime",
+            UNIT_NAMES["runtime"],
+            f"http://127.0.0.1:{llama_port}/health",
+        )
+    ]
     if _unit_installed("openclaw"):
         port = config.integer("ports.openclaw", minimum=1)
-        print(
-            f"openclaw     {_probe(f'http://127.0.0.1:{port}/healthz'):<5} http://127.0.0.1:{port}"
+        specs.append(
+            ServiceSpec(
+                "openclaw",
+                UNIT_NAMES["openclaw"],
+                f"http://127.0.0.1:{port}/healthz",
+            )
         )
     if _unit_installed("sillytavern"):
         port = config.integer("ports.sillytavern", minimum=1)
-        state = _probe(f"http://127.0.0.1:{port}/", frozenset({200, 401}))
-        print(f"sillytavern  {state:<5} http://127.0.0.1:{port}")
+        specs.append(
+            ServiceSpec(
+                "sillytavern",
+                UNIT_NAMES["sillytavern"],
+                f"http://127.0.0.1:{port}/",
+                frozenset({200, 401}),
+            )
+        )
+    return specs
+
+
+def _unit_state(unit: str) -> tuple[str, str]:
+    result = operations.systemctl(
+        "show", unit, "-p", "ActiveState", "-p", "SubState", check=False
+    )
+    values = dict(
+        line.split("=", 1) for line in result.stdout.splitlines() if "=" in line
+    )
+    return values.get("ActiveState", "unknown"), values.get("SubState", "unknown")
+
+
+def _service_report(spec: ServiceSpec, *, timeout: float = 3) -> ServiceReport:
+    active, sub = _unit_state(spec.unit)
+    health = (
+        _probe(spec.url, spec.accepted, timeout=timeout)
+        if active == "active"
+        else "down"
+    )
+    return ServiceReport(spec, active, sub, health)
+
+
+def _collect_reports(config: Config, *, timeout: float = 3) -> list[ServiceReport]:
+    return [_service_report(spec, timeout=timeout) for spec in _service_specs(config)]
+
+
+def _running_models(config: Config) -> list[str]:
+    port = config.integer("ports.llama", minimum=1)
+    try:
+        with urllib.request.urlopen(
+            f"http://127.0.0.1:{port}/running", timeout=3
+        ) as response:
+            document = json.load(response)
+    except (OSError, urllib.error.URLError, json.JSONDecodeError):
+        return []
+    running = document.get("running", []) if isinstance(document, dict) else []
+    return [
+        f"{item['model']} ({item.get('state', 'unknown')})"
+        for item in running
+        if isinstance(item, dict) and isinstance(item.get("model"), str)
+    ]
+
+
+def _configured_model_ready(config: Config) -> bool:
+    expected = f"{config.string('llm.id')} (ready)"
+    return expected in _running_models(config)
+
+
+def _wait_for_endpoint(spec: ServiceSpec, *, timeout: int) -> None:
+    print(f"Waiting for {spec.name}", end="", flush=True)
+    started = time.monotonic()
+    while time.monotonic() - started < timeout:
+        report = _service_report(spec, timeout=1)
+        if report.health == "ok":
+            elapsed = time.monotonic() - started
+            print(f" ready ({elapsed:.1f}s).", flush=True)
+            return
+        if report.state == "failed":
+            print(" failed.", flush=True)
+            raise ConfigError(
+                f"{spec.name} service failed; inspect `nixloom logs {spec.name}`"
+            )
+        print(".", end="", flush=True)
+        time.sleep(1)
+    print(" timed out.", flush=True)
+    raise ConfigError(
+        f"{spec.name} did not become healthy within {timeout}s; "
+        f"inspect `nixloom logs {spec.name}`"
+    )
+
+
+def _warm_model(config: Config) -> None:
+    model = config.string("llm.id")
+    port = config.integer("ports.llama", minimum=1)
+    print(f"Loading {model}; the first load may take several minutes...", flush=True)
+    started = time.monotonic()
+    operations._json_request(
+        f"http://127.0.0.1:{port}/v1/chat/completions",
+        {
+            "model": model,
+            "messages": [{"role": "user", "content": "hi"}],
+            "max_tokens": 1,
+            "chat_template_kwargs": {"enable_thinking": False},
+        },
+        900,
+    )
+    print(f"Model {model} ready ({time.monotonic() - started:.1f}s).", flush=True)
+
+
+def _print_ready_endpoints(reports: list[ServiceReport]) -> None:
+    for report in reports:
+        endpoint = report.spec.url.removesuffix("/health").removesuffix("/healthz")
+        print(f"  {report.spec.name:<12} {endpoint}")
+
+
+def command_start(args: argparse.Namespace) -> int:
+    _, config = _context(args.config)
+    verb = "restart" if args.restart else "start"
+    specs = _service_specs(config)
+    if args.dry_run:
+        print(f"Plan: {verb} NixLoom")
+        print("  services: " + ", ".join(spec.name for spec in specs))
+        print(f"  model:    {config.string('llm.id')} (warm after start)")
+        print("  network:  no downloads")
+        print("Dry run: nothing changed.")
+        return 0
+    if not args.restart:
+        current = _collect_reports(config)
+        if (
+            current
+            and all(report.state == "ready" for report in current)
+            and _configured_model_ready(config)
+        ):
+            print("NixLoom is already ready.")
+            _print_ready_endpoints(current)
+            return 0
+    action = "Restarting" if args.restart else "Starting"
+    print(f"{action} NixLoom ({', '.join(spec.name for spec in specs)})...", flush=True)
+    operations.systemctl(verb, "nixloom.target")
+    # Starting an already-active target does not retry a failed Wanted unit.
+    # Explicitly start the selected services so `nixloom start` also repairs a
+    # partially failed stack.
+    operations.systemctl("start", *(spec.unit for spec in specs))
+    _wait_for_endpoint(specs[0], timeout=120)
+    _warm_model(config)
+    for spec in specs[1:]:
+        _wait_for_endpoint(spec, timeout=60)
+    reports = _collect_reports(config)
+    unhealthy = [report.spec.name for report in reports if report.state != "ready"]
+    if unhealthy:
+        raise ConfigError("services are not ready: " + ", ".join(unhealthy))
+    print("NixLoom is ready.")
+    _print_ready_endpoints(reports)
+    return 0
+
+
+def command_status(args: argparse.Namespace) -> int:
+    _, config = _context(args.config)
+    reports = _collect_reports(config)
+    ready = sum(report.state == "ready" for report in reports)
+    if ready == len(reports):
+        summary = f"ready ({ready}/{len(reports)} services healthy)"
+    elif all(report.state == "stopped" for report in reports):
+        summary = "stopped"
+    else:
+        summary = f"degraded ({ready}/{len(reports)} services healthy)"
+    print(f"NixLoom: {summary}\n")
+    print(f"{'SERVICE':<13} {'STATE':<11} {'SYSTEMD':<18} ENDPOINT")
+    for report in reports:
+        systemd = f"{report.active}/{report.sub}"
+        print(
+            f"{report.spec.name:<13} {report.state:<11} {systemd:<18} {report.spec.url}"
+        )
+    models = _running_models(config) if reports and reports[0].state == "ready" else []
+    print(f"\nModel: {', '.join(models) if models else 'none loaded'}")
+    if summary == "stopped":
+        print("Start with: nixloom start")
+    elif ready != len(reports):
+        print("Inspect with: nixloom logs all")
+    return 0 if ready == len(reports) else 1
+
+
+def command_stop(args: argparse.Namespace) -> int:
+    _, config = _context(args.config)
+    reports = [_service_report(spec, timeout=1) for spec in _service_specs(config)]
+    if reports and all(report.state == "stopped" for report in reports):
+        print("NixLoom is already stopped.")
+        return 0
+    print("Stopping NixLoom...", flush=True)
+    operations.systemctl(
+        "stop", *(spec.unit for spec in reversed(_service_specs(config)))
+    )
+    operations.systemctl("stop", "nixloom.target")
+    print("NixLoom stopped.")
+    return 0
+
+
+def command_logs(args: argparse.Namespace) -> None:
+    if args.service == "all":
+        _, config = _context(args.config)
+        units = [spec.unit for spec in _service_specs(config)]
+    else:
+        units = [UNIT_NAMES[args.service]]
+    command = ["journalctl", "--user", "--lines", str(args.lines)]
+    for unit in units:
+        command.extend(["-u", unit])
+    command.append("--follow" if args.follow else "--no-pager")
+    os.execvp(command[0], command)
 
 
 def command_config(args: argparse.Namespace) -> None:
@@ -204,16 +398,25 @@ def command_backup(args: argparse.Namespace) -> None:
         return
     try:
         if running:
+            print("Stopping NixLoom for a consistent snapshot...", flush=True)
             operations.systemctl("stop", "nixloom.target")
+        print(f"Creating backup in {destination}...", flush=True)
         archive = operations.create_backup(config, paths, destination)
     finally:
         if running:
+            print("Restoring NixLoom services...", flush=True)
             operations.systemctl("start", "nixloom.target")
     print(f"backup written: {archive}")
 
 
 def command_test(args: argparse.Namespace) -> None:
     paths, config = _context(args.config)
+    checks = ["chat", "reasoning", "vision"]
+    if config.boolean("images.enabled") and not args.skip_image:
+        checks.extend(["image", "swap-back"])
+    if not args.skip_agent:
+        checks.append("agent tool call")
+    print("Running live checks: " + ", ".join(checks), flush=True)
     operations.live_test(
         config,
         paths,
@@ -224,47 +427,39 @@ def command_test(args: argparse.Namespace) -> None:
 
 def parser() -> argparse.ArgumentParser:
     root = argparse.ArgumentParser(
-        prog="nixloom", description="Modular local-AI runtime control"
+        prog="nixloom",
+        description="Run and inspect the modular NixLoom local-AI stack.",
     )
     root.add_argument("--config", help="configuration file override")
-    commands = root.add_subparsers(dest="command", required=True)
+    root.add_argument("--version", action="version", version=f"%(prog)s {__version__}")
+    commands = root.add_subparsers(dest="command", required=True, title="commands")
 
-    for name in ("start", "restart"):
-        item = commands.add_parser(name)
-        item.add_argument("--dry-run", action="store_true")
+    for name, help_text in (
+        ("start", "Start services and load the configured LLM"),
+        ("restart", "Restart services and reload the configured LLM"),
+    ):
+        item = commands.add_parser(name, help=help_text, description=help_text)
+        item.add_argument("--dry-run", action="store_true", help="show the plan only")
         item.set_defaults(handler=command_start, restart=name == "restart")
-    commands.add_parser("stop").set_defaults(
-        handler=lambda _: (
-            operations.systemctl("stop", "nixloom.target"),
-            print("NixLoom stopped."),
-        )
+    commands.add_parser("stop", help="Stop every NixLoom service").set_defaults(
+        handler=command_stop
     )
-    commands.add_parser("status").set_defaults(handler=command_status)
-    logs = commands.add_parser("logs")
+    commands.add_parser(
+        "status", help="Show combined systemd, endpoint, and model state"
+    ).set_defaults(handler=command_status)
+    logs = commands.add_parser("logs", help="Read one service or the combined journal")
     logs.add_argument("service", choices=UNIT_NAMES, nargs="?", default="all")
-    logs.add_argument("--follow", "-f", action="store_true")
-    logs.set_defaults(
-        handler=lambda args: os.execvp(
-            "journalctl",
-            [
-                "journalctl",
-                "--user",
-                "-u",
-                UNIT_NAMES[args.service],
-                "--lines",
-                "100",
-                *(["--follow"] if args.follow else ["--no-pager"]),
-            ],
-        )
-    )
+    logs.add_argument("--follow", "-f", action="store_true", help="follow new entries")
+    logs.add_argument("--lines", "-n", type=int, default=100, help="entries to show")
+    logs.set_defaults(handler=command_logs)
 
-    config = commands.add_parser("config")
+    config = commands.add_parser("config", help="Initialize or validate configuration")
     config.add_argument("config_action", choices=("check", "init"))
     config.add_argument("--verbose", action="store_true")
     config.add_argument("--dry-run", action="store_true")
     config.set_defaults(handler=command_config)
 
-    models = commands.add_parser("models")
+    models = commands.add_parser("models", help="Verify or download model assets")
     models.add_argument("models_action", choices=("check", "download"))
     models.add_argument("assets", nargs="*")
 
@@ -279,17 +474,21 @@ def parser() -> argparse.ArgumentParser:
 
     models.set_defaults(handler=models_handler)
 
-    test = commands.add_parser("test")
-    test.add_argument("--skip-image", action="store_true")
-    test.add_argument("--skip-agent", action="store_true")
+    test = commands.add_parser("test", help="Run live end-to-end regression checks")
+    test.add_argument("--skip-image", action="store_true", help="skip image generation")
+    test.add_argument(
+        "--skip-agent", action="store_true", help="skip the agent tool call"
+    )
     test.set_defaults(handler=command_test)
 
-    backup = commands.add_parser("backup")
+    backup = commands.add_parser("backup", help="Back up private frontend state")
     backup.add_argument("destination", nargs="?")
     backup.add_argument("--dry-run", action="store_true")
     backup.set_defaults(handler=command_backup)
 
-    service = commands.add_parser("service", help=argparse.SUPPRESS)
+    service = commands.add_parser(
+        "service", help="Internal service entry point used by systemd"
+    )
     service.add_argument(
         "service_name", choices=("runtime", "llama", "image", "openclaw", "sillytavern")
     )
@@ -303,8 +502,8 @@ def parser() -> argparse.ArgumentParser:
 def main() -> int:
     try:
         args = parser().parse_args()
-        args.handler(args)
-        return 0
+        result = args.handler(args)
+        return result if isinstance(result, int) else 0
     except (
         ConfigError,
         OSError,
