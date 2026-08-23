@@ -43,15 +43,13 @@ class RuntimePaths:
         cache = Path(
             os.environ.get(
                 "NIXLOOM_CACHE_DIR",
-                Path(os.environ.get("XDG_CACHE_HOME", home / ".cache"))
-                / "nixloom",
+                Path(os.environ.get("XDG_CACHE_HOME", home / ".cache")) / "nixloom",
             )
         ).expanduser()
         config_dir = Path(
             os.environ.get(
                 "NIXLOOM_CONFIG_DIR",
-                Path(os.environ.get("XDG_CONFIG_HOME", home / ".config"))
-                / "nixloom",
+                Path(os.environ.get("XDG_CONFIG_HOME", home / ".config")) / "nixloom",
             )
         ).expanduser()
         share_value = os.environ.get("NIXLOOM_SHARE")
@@ -165,9 +163,8 @@ class Config:
         self.string("llm.mmproj_file")
         context = self.integer("llm.context", minimum=1)
         maximum = self.integer("llm.max_tokens", minimum=1)
-        thinking_maximum = self.integer("llm.thinking_max_tokens", minimum=1)
-        if maximum >= context or thinking_maximum >= context:
-            raise ConfigError("LLM output token limits must be smaller than llm.context")
+        if maximum >= context:
+            raise ConfigError("llm.max_tokens must be smaller than llm.context")
         for key in (
             "n_cpu_moe",
             "fit_target",
@@ -180,30 +177,75 @@ class Config:
             self.boolean(f"llm.{key}")
         for key in ("cache_type_k", "cache_type_v"):
             if self.string(f"llm.{key}") not in {
-                "f32", "f16", "bf16", "q8_0", "q4_0", "q4_1", "iq4_nl", "q5_0", "q5_1"
+                "f32",
+                "f16",
+                "bf16",
+                "q8_0",
+                "q4_0",
+                "q4_1",
+                "iq4_nl",
+                "q5_0",
+                "q5_1",
             }:
                 raise ConfigError(f"llm.{key} has an unsupported cache type")
-        for key in ("temperature", "top_p", "min_p", "frequency_penalty", "presence_penalty", "repeat_penalty"):
+        for key in (
+            "temperature",
+            "top_p",
+            "min_p",
+            "frequency_penalty",
+            "presence_penalty",
+            "repeat_penalty",
+        ):
             self.number(f"llm.sampling.{key}")
         self.integer("llm.sampling.top_k", minimum=0)
 
-        self.boolean("images.enabled")
-        self.string("images.weight_type")
-        self.boolean("images.flash_attention")
-        name, profile = self.image_profile()
-        for field in ("model_file", "size", "sampler", "scheduler", "negative_prompt", "prompt_prefix"):
-            if not isinstance(profile.get(field), str):
-                raise ConfigError(f"images.profiles.{name}.{field} must be a string")
-        for field in ("steps",):
-            if isinstance(profile.get(field), bool) or not isinstance(profile.get(field), int) or profile[field] < 1:
-                raise ConfigError(f"images.profiles.{name}.{field} must be a positive integer")
-        if isinstance(profile.get("cfg_scale"), bool) or not isinstance(profile.get("cfg_scale"), (int, float)):
-            raise ConfigError(f"images.profiles.{name}.cfg_scale must be a number")
-        lora = profile.get("lora", "")
-        if lora and not isinstance(lora, str):
-            raise ConfigError(f"images.profiles.{name}.lora must be a string")
-        if lora and not isinstance(profile.get("lora_mult"), (int, float)):
-            raise ConfigError(f"images.profiles.{name}.lora_mult must be a number when lora is set")
+        images = self.get("images", required=True)
+        if not isinstance(images, dict):
+            raise ConfigError("images must be a mapping")
+        images_enabled = self.boolean("images.enabled")
+        image_runtime = os.environ.get("NIXLOOM_IMAGE_RUNTIME", "enabled")
+        if image_runtime not in {"enabled", "disabled"}:
+            raise ConfigError("NIXLOOM_IMAGE_RUNTIME must be enabled or disabled")
+        if images_enabled and image_runtime == "disabled":
+            raise ConfigError(
+                "images.enabled requires services.nixloom.images.enable in Home Manager"
+            )
+        if images_enabled:
+            self.string("images.weight_type")
+            self.boolean("images.flash_attention")
+            self.boolean("images.offload_to_cpu", False)
+            name, profile = self.image_profile()
+            for field in (
+                "model_file",
+                "size",
+                "sampler",
+                "scheduler",
+                "negative_prompt",
+                "prompt_prefix",
+            ):
+                if not isinstance(profile.get(field), str):
+                    raise ConfigError(
+                        f"images.profiles.{name}.{field} must be a string"
+                    )
+            if (
+                isinstance(profile.get("steps"), bool)
+                or not isinstance(profile.get("steps"), int)
+                or profile["steps"] < 1
+            ):
+                raise ConfigError(
+                    f"images.profiles.{name}.steps must be a positive integer"
+                )
+            if isinstance(profile.get("cfg_scale"), bool) or not isinstance(
+                profile.get("cfg_scale"), (int, float)
+            ):
+                raise ConfigError(f"images.profiles.{name}.cfg_scale must be a number")
+            lora = profile.get("lora", "")
+            if lora and not isinstance(lora, str):
+                raise ConfigError(f"images.profiles.{name}.lora must be a string")
+            if lora and not isinstance(profile.get("lora_mult"), (int, float)):
+                raise ConfigError(
+                    f"images.profiles.{name}.lora_mult must be a number when lora is set"
+                )
 
         if "sillytavern" in self.value:
             bind = self.string("sillytavern.bind")
@@ -223,7 +265,12 @@ class Config:
             if not isinstance(name, str) or not isinstance(asset, dict):
                 raise ConfigError("every asset must be a named mapping")
             relative = asset.get("path")
-            if not isinstance(relative, str) or not relative or Path(relative).is_absolute() or ".." in Path(relative).parts:
+            if (
+                not isinstance(relative, str)
+                or not relative
+                or Path(relative).is_absolute()
+                or ".." in Path(relative).parts
+            ):
                 raise ConfigError(f"assets.{name}.path must be a safe relative path")
             url = asset.get("url")
             if not isinstance(url, str) or not url.startswith(("https://", "http://")):
@@ -232,5 +279,11 @@ class Config:
             digest = asset.get("sha256")
             if isinstance(size, bool) or not isinstance(size, int) or size < 1:
                 raise ConfigError(f"assets.{name}.size must be a positive integer")
-            if not isinstance(digest, str) or len(digest) != 64 or any(c not in "0123456789abcdef" for c in digest):
-                raise ConfigError(f"assets.{name}.sha256 must be 64 lowercase hexadecimal characters")
+            if (
+                not isinstance(digest, str)
+                or len(digest) != 64
+                or any(c not in "0123456789abcdef" for c in digest)
+            ):
+                raise ConfigError(
+                    f"assets.{name}.sha256 must be 64 lowercase hexadecimal characters"
+                )

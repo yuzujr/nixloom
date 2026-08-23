@@ -11,6 +11,22 @@ from typing import Any
 
 from .config import Config, ConfigError, RuntimePaths
 
+IMAGE_SETTING_KEYS = frozenset(
+    {
+        "source",
+        "sdcpp_url",
+        "model",
+        "sampler",
+        "scheduler",
+        "steps",
+        "scale",
+        "width",
+        "height",
+        "negative_prompt",
+        "prompt_prefix",
+    }
+)
+
 
 def _load_json(path: Path) -> dict[str, Any]:
     value = json.loads(path.read_text(encoding="utf-8"))
@@ -22,7 +38,9 @@ def _load_json(path: Path) -> dict[str, Any]:
 def _write_json_atomic(path: Path, value: dict[str, Any]) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     mode = path.stat().st_mode & 0o777 if path.exists() else 0o600
-    descriptor, temporary_name = tempfile.mkstemp(prefix=path.name + ".", dir=path.parent)
+    descriptor, temporary_name = tempfile.mkstemp(
+        prefix=path.name + ".", dir=path.parent
+    )
     try:
         os.fchmod(descriptor, mode)
         with os.fdopen(descriptor, "w", encoding="utf-8") as output:
@@ -82,7 +100,9 @@ def sync_settings(config: Config, settings_path: Path) -> bool:
         return False
     settings = _load_json(settings_path)
     llama_url = f"http://127.0.0.1:{config.integer('ports.llama', minimum=1)}/v1"
-    image_url = f"http://127.0.0.1:{config.integer('ports.llama', minimum=1)}/upstream/sd"
+    image_url = (
+        f"http://127.0.0.1:{config.integer('ports.llama', minimum=1)}/upstream/sd"
+    )
     managed = _generation_settings(config, llama_url)
     preset_name = config.string("sillytavern.preset")
     preset_dir = settings_path.parent / "OpenAI Settings"
@@ -91,9 +111,17 @@ def sync_settings(config: Config, settings_path: Path) -> bool:
         preset = _load_json(target_path)
     else:
         existing = settings.get("oai_settings", {})
-        source_name = existing.get("preset_settings_openai", "") if isinstance(existing, dict) else ""
+        source_name = (
+            existing.get("preset_settings_openai", "")
+            if isinstance(existing, dict)
+            else ""
+        )
         source_path = preset_dir / f"{source_name}.json"
-        preset = _load_json(source_path) if source_name and source_path.exists() else dict(existing)
+        preset = (
+            _load_json(source_path)
+            if source_name and source_path.exists()
+            else dict(existing)
+        )
     preset.update(managed)
     _write_json_atomic(target_path, preset)
 
@@ -111,6 +139,9 @@ def sync_settings(config: Config, settings_path: Path) -> bool:
         raise ConfigError("SillyTavern extension_settings.sd must be an object")
     if config.boolean("images.enabled"):
         image.update(_image_settings(config, image_url))
+    else:
+        for key in IMAGE_SETTING_KEYS:
+            image.pop(key, None)
 
     profiles = (
         extension_settings.get("connectionManager", {}).get("profiles", [])
@@ -150,7 +181,9 @@ def environment(config: Config, paths: RuntimePaths) -> dict[str, str]:
     }
     password = config.string("sillytavern.auth_password", "")
     if password:
-        values["SILLYTAVERN_BASICAUTHUSER_USERNAME"] = config.string("sillytavern.auth_user")
+        values["SILLYTAVERN_BASICAUTHUSER_USERNAME"] = config.string(
+            "sillytavern.auth_user"
+        )
         values["SILLYTAVERN_BASICAUTHUSER_PASSWORD"] = password
     return values
 
@@ -160,13 +193,20 @@ def command(config: Config) -> list[str]:
     listen = host not in {"127.0.0.1", "localhost", "::1"}
     result = [
         "sillytavern",
-        "--port", str(config.integer("ports.sillytavern", minimum=1)),
-        "--browserLaunchEnabled", "false",
-        "--enableIPv4", "true",
-        "--enableIPv6", "false",
-        "--listen", str(listen).lower(),
-        "--listenAddressIPv4", host,
-        "--whitelist", "false",
+        "--port",
+        str(config.integer("ports.sillytavern", minimum=1)),
+        "--browserLaunchEnabled",
+        "false",
+        "--enableIPv4",
+        "true",
+        "--enableIPv6",
+        "false",
+        "--listen",
+        str(listen).lower(),
+        "--listenAddressIPv4",
+        host,
+        "--whitelist",
+        "false",
     ]
     if config.string("sillytavern.auth_password", ""):
         result.extend(["--basicAuthMode", "true"])
@@ -184,11 +224,16 @@ def run(config: Config, paths: RuntimePaths, *, dry_run: bool = False) -> None:
     os.environ.update(values)
     for key in ("XDG_DATA_HOME", "XDG_CONFIG_HOME", "XDG_CACHE_HOME", "XDG_STATE_HOME"):
         Path(values[key]).mkdir(parents=True, exist_ok=True)
-    settings_path = Path(values["XDG_DATA_HOME"]) / "SillyTavern/data/default-user/settings.json"
+    settings_path = (
+        Path(values["XDG_DATA_HOME"]) / "SillyTavern/data/default-user/settings.json"
+    )
     try:
         synchronized = sync_settings(config, settings_path)
         if synchronized:
-            print("SillyTavern local chat and stable-diffusion.cpp profiles synchronized.", file=sys.stderr)
+            print(
+                "SillyTavern local chat and stable-diffusion.cpp profiles synchronized.",
+                file=sys.stderr,
+            )
     except (OSError, ValueError, json.JSONDecodeError) as error:
         print(f"warning: SillyTavern profile sync failed: {error}", file=sys.stderr)
     host = config.string("sillytavern.bind")

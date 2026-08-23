@@ -44,7 +44,9 @@ def verify_asset(path: Path, size: int, digest: str) -> bool:
     return path.is_file() and path.stat().st_size == size and _sha256(path) == digest
 
 
-def selected_assets(config: Config, requested: Iterable[str]) -> list[tuple[str, dict[str, Any]]]:
+def selected_assets(
+    config: Config, requested: Iterable[str]
+) -> list[tuple[str, dict[str, Any]]]:
     catalog = config.get("assets", {})
     assert isinstance(catalog, dict)
     names = list(requested) or sorted(catalog)
@@ -80,7 +82,9 @@ def _download(url: str, target: Path, token: str) -> None:
             shutil.copyfileobj(response, output, length=8 * 1024 * 1024)
 
 
-def download_models(config: Config, paths: RuntimePaths, requested: Iterable[str]) -> bool:
+def download_models(
+    config: Config, paths: RuntimePaths, requested: Iterable[str]
+) -> bool:
     token = config.string("credentials.civitai_api_token", "")
     passed = True
     for name, asset in selected_assets(config, requested):
@@ -96,7 +100,10 @@ def download_models(config: Config, paths: RuntimePaths, requested: Iterable[str
         try:
             _download(asset["url"], partial, token)
             if not verify_asset(partial, asset["size"], asset["sha256"]):
-                print(f"retrying {name} from the beginning after verification failure", file=os.sys.stderr)
+                print(
+                    f"retrying {name} from the beginning after verification failure",
+                    file=os.sys.stderr,
+                )
                 partial.unlink(missing_ok=True)
                 _download(asset["url"], partial, token)
             if not verify_asset(partial, asset["size"], asset["sha256"]):
@@ -139,7 +146,9 @@ def create_backup(config: Config, paths: RuntimePaths, destination: Path) -> Pat
             source = paths.state / database.relative_to(staged_state)
             if source.is_file():
                 _snapshot_sqlite(source, database)
-        for sidecar in list(staged_state.rglob("*.db-wal")) + list(staged_state.rglob("*.db-shm")):
+        for sidecar in list(staged_state.rglob("*.db-wal")) + list(
+            staged_state.rglob("*.db-shm")
+        ):
             sidecar.unlink(missing_ok=True)
 
         stamp = datetime.now(UTC).astimezone().strftime("%Y%m%d-%H%M%S")
@@ -161,7 +170,10 @@ def _json_request(url: str, payload: dict[str, Any], timeout: int) -> dict[str, 
     request = urllib.request.Request(
         url,
         data=json.dumps(payload).encode(),
-        headers={"Content-Type": "application/json", "Authorization": "Bearer nixloom-local"},
+        headers={
+            "Content-Type": "application/json",
+            "Authorization": "Bearer nixloom-local",
+        },
         method="POST",
     )
     with urllib.request.urlopen(request, timeout=timeout) as response:
@@ -176,9 +188,16 @@ def _png_data_url() -> str:
     raw = b"".join(b"\x00" + b"\x33\x99\xff" * width for _ in range(height))
 
     def chunk(kind: bytes, value: bytes) -> bytes:
-        return struct.pack(">I", len(value)) + kind + value + struct.pack(">I", zlib.crc32(kind + value))
+        return (
+            struct.pack(">I", len(value))
+            + kind
+            + value
+            + struct.pack(">I", zlib.crc32(kind + value))
+        )
 
-    png = b"\x89PNG\r\n\x1a\n" + chunk(b"IHDR", struct.pack(">IIBBBBB", width, height, 8, 2, 0, 0, 0))
+    png = b"\x89PNG\r\n\x1a\n" + chunk(
+        b"IHDR", struct.pack(">IIBBBBB", width, height, 8, 2, 0, 0, 0)
+    )
     png += chunk(b"IDAT", zlib.compress(raw)) + chunk(b"IEND", b"")
     return "data:image/png;base64," + base64.b64encode(png).decode()
 
@@ -201,7 +220,12 @@ def live_test(config: Config, *, skip_image: bool = False) -> None:
             "reasoning",
             {
                 "model": model,
-                "messages": [{"role": "user", "content": "What is 17 + 25? Give only the number."}],
+                "messages": [
+                    {
+                        "role": "user",
+                        "content": "What is 17 + 25? Give only the number.",
+                    }
+                ],
                 "max_tokens": 128,
                 "chat_template_kwargs": {"enable_thinking": True},
             },
@@ -214,8 +238,14 @@ def live_test(config: Config, *, skip_image: bool = False) -> None:
                     {
                         "role": "user",
                         "content": [
-                            {"type": "text", "text": "What is the dominant color? One word."},
-                            {"type": "image_url", "image_url": {"url": _png_data_url()}},
+                            {
+                                "type": "text",
+                                "text": "What is the dominant color? One word.",
+                            },
+                            {
+                                "type": "image_url",
+                                "image_url": {"url": _png_data_url()},
+                            },
                         ],
                     }
                 ],

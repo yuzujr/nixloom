@@ -29,12 +29,15 @@ def _context(config_path: str | None = None) -> tuple[RuntimePaths, Config]:
 
 
 def _unit_installed(name: str) -> bool:
-    return subprocess.run(
-        ["systemctl", "--user", "cat", UNIT_NAMES[name]],
-        check=False,
-        stdout=subprocess.DEVNULL,
-        stderr=subprocess.DEVNULL,
-    ).returncode == 0
+    return (
+        subprocess.run(
+            ["systemctl", "--user", "cat", UNIT_NAMES[name]],
+            check=False,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+        ).returncode
+        == 0
+    )
 
 
 def _probe(url: str, accepted: frozenset[int] = frozenset({200})) -> str:
@@ -84,14 +87,24 @@ def command_status(args: argparse.Namespace) -> None:
     for name in ("runtime", "openclaw", "sillytavern"):
         if name != "runtime" and not _unit_installed(name):
             continue
-        result = operations.systemctl("show", UNIT_NAMES[name], "-p", "ActiveState", "-p", "SubState", check=False)
-        values = dict(line.split("=", 1) for line in result.stdout.splitlines() if "=" in line)
-        print(f"{name:<12} {values.get('ActiveState', 'unknown'):<10} {values.get('SubState', 'unknown')}")
+        result = operations.systemctl(
+            "show", UNIT_NAMES[name], "-p", "ActiveState", "-p", "SubState", check=False
+        )
+        values = dict(
+            line.split("=", 1) for line in result.stdout.splitlines() if "=" in line
+        )
+        print(
+            f"{name:<12} {values.get('ActiveState', 'unknown'):<10} {values.get('SubState', 'unknown')}"
+        )
     llama_port = config.integer("ports.llama", minimum=1)
-    print(f"runtime      {_probe(f'http://127.0.0.1:{llama_port}/health'):<5} http://127.0.0.1:{llama_port}")
+    print(
+        f"runtime      {_probe(f'http://127.0.0.1:{llama_port}/health'):<5} http://127.0.0.1:{llama_port}"
+    )
     if _unit_installed("openclaw"):
         port = config.integer("ports.openclaw", minimum=1)
-        print(f"openclaw     {_probe(f'http://127.0.0.1:{port}/healthz'):<5} http://127.0.0.1:{port}")
+        print(
+            f"openclaw     {_probe(f'http://127.0.0.1:{port}/healthz'):<5} http://127.0.0.1:{port}"
+        )
     if _unit_installed("sillytavern"):
         port = config.integer("ports.sillytavern", minimum=1)
         state = _probe(f"http://127.0.0.1:{port}/", frozenset({200, 401}))
@@ -118,7 +131,11 @@ def command_config(args: argparse.Namespace) -> None:
         return
     config = Config.load(paths)
     llama = runtime.llama_command(config, paths)
-    image = runtime.image_command(config, paths)
+    image = (
+        runtime.image_command(config, paths)
+        if config.boolean("images.enabled")
+        else None
+    )
     swap, document = runtime.swap_command(config, paths)
     if "openclaw" in config.value:
         openclaw.managed_settings(config)
@@ -126,7 +143,8 @@ def command_config(args: argparse.Namespace) -> None:
         sillytavern.command(config)
     if args.verbose:
         print(runtime.render_command(llama))
-        print(runtime.render_command(image))
+        if image:
+            print(runtime.render_command(image))
         print(document.rstrip())
         print(runtime.render_command(swap))
     print("Config and generated launch commands are valid.")
@@ -154,7 +172,9 @@ def command_service(args: argparse.Namespace) -> None:
         runtime.check_assets(command, config, paths)
         runtime.execute(command)
     elif args.service_name == "image":
-        command = runtime.image_command(config, paths, host=args.host, port=args.port or 7860)
+        command = runtime.image_command(
+            config, paths, host=args.host, port=args.port or 7860
+        )
         if args.dry_run:
             print(runtime.render_command(command))
             return
@@ -168,8 +188,16 @@ def command_service(args: argparse.Namespace) -> None:
 
 def command_backup(args: argparse.Namespace) -> None:
     paths, config = _context(args.config)
-    destination = Path(args.destination or os.environ.get("NIXLOOM_BACKUP_DIR", Path.home() / "backups/nixloom"))
-    running = operations.systemctl("is-active", "--quiet", "nixloom.target", check=False).returncode == 0
+    destination = Path(
+        args.destination
+        or os.environ.get("NIXLOOM_BACKUP_DIR", Path.home() / "backups/nixloom")
+    )
+    running = (
+        operations.systemctl(
+            "is-active", "--quiet", "nixloom.target", check=False
+        ).returncode
+        == 0
+    )
     if args.dry_run:
         print(f"backup config, OpenClaw and SillyTavern state -> {destination}")
         print(f"temporarily stop running stack: {str(running).lower()}")
@@ -185,7 +213,9 @@ def command_backup(args: argparse.Namespace) -> None:
 
 
 def parser() -> argparse.ArgumentParser:
-    root = argparse.ArgumentParser(prog="nixloom", description="Modular local-AI runtime control")
+    root = argparse.ArgumentParser(
+        prog="nixloom", description="Modular local-AI runtime control"
+    )
     root.add_argument("--config", help="configuration file override")
     commands = root.add_subparsers(dest="command", required=True)
 
@@ -193,12 +223,30 @@ def parser() -> argparse.ArgumentParser:
         item = commands.add_parser(name)
         item.add_argument("--dry-run", action="store_true")
         item.set_defaults(handler=command_start, restart=name == "restart")
-    commands.add_parser("stop").set_defaults(handler=lambda _: (operations.systemctl("stop", "nixloom.target"), print("NixLoom stopped.")))
+    commands.add_parser("stop").set_defaults(
+        handler=lambda _: (
+            operations.systemctl("stop", "nixloom.target"),
+            print("NixLoom stopped."),
+        )
+    )
     commands.add_parser("status").set_defaults(handler=command_status)
     logs = commands.add_parser("logs")
     logs.add_argument("service", choices=UNIT_NAMES, nargs="?", default="all")
     logs.add_argument("--follow", "-f", action="store_true")
-    logs.set_defaults(handler=lambda args: os.execvp("journalctl", ["journalctl", "--user", "-u", UNIT_NAMES[args.service], "--lines", "100", *( ["--follow"] if args.follow else ["--no-pager"] )]))
+    logs.set_defaults(
+        handler=lambda args: os.execvp(
+            "journalctl",
+            [
+                "journalctl",
+                "--user",
+                "-u",
+                UNIT_NAMES[args.service],
+                "--lines",
+                "100",
+                *(["--follow"] if args.follow else ["--no-pager"]),
+            ],
+        )
+    )
 
     config = commands.add_parser("config")
     config.add_argument("config_action", choices=("check", "init"))
@@ -209,16 +257,25 @@ def parser() -> argparse.ArgumentParser:
     models = commands.add_parser("models")
     models.add_argument("models_action", choices=("check", "download"))
     models.add_argument("assets", nargs="*")
+
     def models_handler(args: argparse.Namespace) -> None:
         paths, loaded = _context(args.config)
-        action = operations.check_models if args.models_action == "check" else operations.download_models
+        action = (
+            operations.check_models
+            if args.models_action == "check"
+            else operations.download_models
+        )
         raise SystemExit(0 if action(loaded, paths, args.assets) else 1)
 
     models.set_defaults(handler=models_handler)
 
     test = commands.add_parser("test")
     test.add_argument("--skip-image", action="store_true")
-    test.set_defaults(handler=lambda args: operations.live_test(_context(args.config)[1], skip_image=args.skip_image))
+    test.set_defaults(
+        handler=lambda args: operations.live_test(
+            _context(args.config)[1], skip_image=args.skip_image
+        )
+    )
 
     backup = commands.add_parser("backup")
     backup.add_argument("destination", nargs="?")
@@ -226,7 +283,9 @@ def parser() -> argparse.ArgumentParser:
     backup.set_defaults(handler=command_backup)
 
     service = commands.add_parser("service", help=argparse.SUPPRESS)
-    service.add_argument("service_name", choices=("runtime", "llama", "image", "openclaw", "sillytavern"))
+    service.add_argument(
+        "service_name", choices=("runtime", "llama", "image", "openclaw", "sillytavern")
+    )
     service.add_argument("--host", default="127.0.0.1")
     service.add_argument("--port")
     service.add_argument("--dry-run", action="store_true")
@@ -239,7 +298,12 @@ def main() -> int:
         args = parser().parse_args()
         args.handler(args)
         return 0
-    except (ConfigError, OSError, subprocess.CalledProcessError, urllib.error.URLError) as error:
+    except (
+        ConfigError,
+        OSError,
+        subprocess.CalledProcessError,
+        urllib.error.URLError,
+    ) as error:
         print(f"error: {error}", file=sys.stderr)
         return 2
 

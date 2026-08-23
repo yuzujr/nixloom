@@ -33,6 +33,34 @@ class SillyTavernTests(unittest.TestCase):
             self.assertTrue(image["sdcpp_url"].endswith("/upstream/sd"))
             self.assertIn("masterpiece", image["prompt_prefix"])
 
+    def test_sync_removes_only_managed_image_settings_when_disabled(self) -> None:
+        paths = RuntimePaths.from_environment(str(ROOT / "config.yaml"))
+        config = Config.load(paths)
+        config.value["images"]["enabled"] = False
+        with tempfile.TemporaryDirectory() as temporary:
+            settings = Path(temporary) / "settings.json"
+            settings.write_text(
+                json.dumps(
+                    {
+                        "oai_settings": {},
+                        "extension_settings": {
+                            "sd": {
+                                "source": "sdcpp",
+                                "sdcpp_url": "http://old/upstream/sd",
+                                "model": "old-model",
+                                "user_setting": "keep",
+                            }
+                        },
+                    }
+                ),
+                encoding="utf-8",
+            )
+            self.assertTrue(sync_settings(config, settings))
+            image = json.loads(settings.read_text(encoding="utf-8"))[
+                "extension_settings"
+            ]["sd"]
+            self.assertEqual(image, {"user_setting": "keep"})
+
 
 if __name__ == "__main__":
     unittest.main()

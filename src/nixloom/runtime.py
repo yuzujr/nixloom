@@ -34,41 +34,75 @@ def llama_command(
     bind_port = port if port is not None else config.integer("ports.llama", minimum=1)
     command = [
         "llama-server",
-        "-m", str(model),
-        "--mmproj", str(mmproj),
-        "--alias", config.string("llm.id"),
-        "--host", host,
-        "--port", str(bind_port),
-        "-ngl", str(gpu_layers),
-        "-c", str(config.integer("llm.context", minimum=1)),
-        "-n", str(config.integer("llm.max_tokens", minimum=1)),
-        "--parallel", "1",
+        "-m",
+        str(model),
+        "--mmproj",
+        str(mmproj),
+        "--alias",
+        config.string("llm.id"),
+        "--host",
+        host,
+        "--port",
+        str(bind_port),
+        "-ngl",
+        str(gpu_layers),
+        "-c",
+        str(config.integer("llm.context", minimum=1)),
+        "-n",
+        str(config.integer("llm.max_tokens", minimum=1)),
+        "--parallel",
+        "1",
         "--jinja",
         "--no-ui",
-        "--fit", "on",
-        "--fit-target", str(config.integer("llm.fit_target", minimum=1)),
-        "--n-cpu-moe", str(config.integer("llm.n_cpu_moe", minimum=1)),
-        "--threads", str(config.integer("llm.threads", minimum=1)),
-        "--threads-batch", str(config.integer("llm.threads_batch", minimum=1)),
-        "--flash-attn", _on_off(config.boolean("llm.flash_attention")),
-        "--cache-type-k", config.string("llm.cache_type_k"),
-        "--cache-type-v", config.string("llm.cache_type_v"),
-        "--image-min-tokens", str(config.integer("llm.image_tokens", minimum=1)),
-        "--image-max-tokens", str(config.integer("llm.image_tokens", minimum=1)),
-        "--reasoning", "auto",
-        "--reasoning-budget", "-1",
-        "--reasoning-format", "deepseek",
-        "--chat-template-kwargs", '{"enable_thinking":false}',
-        "--temp", str(sampling["temperature"]),
-        "--top-k", str(sampling["top_k"]),
-        "--top-p", str(sampling["top_p"]),
-        "--min-p", str(sampling["min_p"]),
-        "--frequency-penalty", str(sampling["frequency_penalty"]),
-        "--presence-penalty", str(sampling["presence_penalty"]),
-        "--repeat-penalty", str(sampling["repeat_penalty"]),
+        "--fit",
+        "on",
+        "--fit-target",
+        str(config.integer("llm.fit_target", minimum=1)),
+        "--n-cpu-moe",
+        str(config.integer("llm.n_cpu_moe", minimum=1)),
+        "--threads",
+        str(config.integer("llm.threads", minimum=1)),
+        "--threads-batch",
+        str(config.integer("llm.threads_batch", minimum=1)),
+        "--flash-attn",
+        _on_off(config.boolean("llm.flash_attention")),
+        "--cache-type-k",
+        config.string("llm.cache_type_k"),
+        "--cache-type-v",
+        config.string("llm.cache_type_v"),
+        "--image-min-tokens",
+        str(config.integer("llm.image_tokens", minimum=1)),
+        "--image-max-tokens",
+        str(config.integer("llm.image_tokens", minimum=1)),
+        "--reasoning",
+        "auto",
+        "--reasoning-budget",
+        "-1",
+        "--reasoning-format",
+        "deepseek",
+        "--chat-template-kwargs",
+        '{"enable_thinking":false}',
+        "--temp",
+        str(sampling["temperature"]),
+        "--top-k",
+        str(sampling["top_k"]),
+        "--top-p",
+        str(sampling["top_p"]),
+        "--min-p",
+        str(sampling["min_p"]),
+        "--frequency-penalty",
+        str(sampling["frequency_penalty"]),
+        "--presence-penalty",
+        str(sampling["presence_penalty"]),
+        "--repeat-penalty",
+        str(sampling["repeat_penalty"]),
         "--mmap" if config.boolean("llm.mmap") else "--no-mmap",
-        "--mmproj-offload" if config.boolean("llm.mmproj_offload") else "--no-mmproj-offload",
-        "--reasoning-preserve" if config.boolean("llm.reasoning_preserve") else "--no-reasoning-preserve",
+        "--mmproj-offload"
+        if config.boolean("llm.mmproj_offload")
+        else "--no-mmproj-offload",
+        "--reasoning-preserve"
+        if config.boolean("llm.reasoning_preserve")
+        else "--no-reasoning-preserve",
     ]
     return command
 
@@ -80,14 +114,20 @@ def image_command(
     host: str = "127.0.0.1",
     port: int | str = 7860,
 ) -> list[str]:
+    if not config.boolean("images.enabled"):
+        raise ConfigError("image generation is disabled")
     name, profile = config.image_profile()
     model = config.model_path(str(profile["model_file"]), paths)
     command = [
         "sd-server",
-        "--model", str(model),
-        "--listen-ip", host,
-        "--listen-port", str(port),
-        "--type", config.string("images.weight_type"),
+        "--model",
+        str(model),
+        "--listen-ip",
+        host,
+        "--listen-port",
+        str(port),
+        "--type",
+        config.string("images.weight_type"),
     ]
     lora_value = profile.get("lora", "")
     if lora_value:
@@ -95,12 +135,15 @@ def image_command(
         lora_multiplier = profile["lora_mult"]
         command.extend(
             [
-                "--lora-model-dir", str(lora.parent),
-                "--lora-apply-mode", "at_runtime",
+                "--lora-model-dir",
+                str(lora.parent),
+                "--lora-apply-mode",
+                "at_runtime",
                 # Server APIs deliberately skip request-embedded LoRA tags.
                 # Resolve the configured LoRA in the default parameters so
                 # native, OpenAI, and A1111 requests inherit it uniformly.
-                "--prompt", f"<lora:{lora.name}:{lora_multiplier}>",
+                "--prompt",
+                f"<lora:{lora.name}:{lora_multiplier}>",
             ]
         )
     if config.boolean("images.flash_attention"):
@@ -133,8 +176,10 @@ def swap_command(config: Config, paths: RuntimePaths) -> tuple[list[str], str]:
     target = paths.cache / "llama-swap.yaml"
     command = [
         "llama-swap",
-        "--config", str(target),
-        "--listen", f"127.0.0.1:{config.integer('ports.llama', minimum=1)}",
+        "--config",
+        str(target),
+        "--listen",
+        f"127.0.0.1:{config.integer('ports.llama', minimum=1)}",
         "--watch-config",
     ]
     document = yaml.safe_dump(swap_document(config, paths), sort_keys=False)
@@ -155,7 +200,9 @@ def check_assets(command: list[str], config: Config, paths: RuntimePaths) -> Non
     missing = [path for path in required if not path.is_file()]
     if missing:
         rendered = "\n".join(f"  {path}" for path in missing)
-        raise ConfigError(f"model assets not found:\n{rendered}\nRun `nixloom models download` first.")
+        raise ConfigError(
+            f"model assets not found:\n{rendered}\nRun `nixloom models download` first."
+        )
 
 
 def execute(command: list[str]) -> None:

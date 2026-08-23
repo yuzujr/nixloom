@@ -35,11 +35,13 @@ services.nixloom = {
   enable = true;
   acceleration = "cuda"; # cpu, cuda, vulkan, or rocm
   cudaCapabilities = [ "12.0" ]; # optional, host-specific build target
+  images.enable = true; # omit the image backend and its closure when false
 };
 ```
 
-`llamaPackage` and `imagePackage` may also be overridden independently. The
-default is CPU, so importing the module does not imply an NVIDIA system.
+`llamaPackage` and `imagePackage` may also be overridden independently. Image
+generation is omitted from the runtime closure unless `images.enable = true`.
+The default is CPU, so importing the module does not imply an NVIDIA system.
 Backend packages come from NixLoom's own lock rather than the host package set;
 updating an unrelated NixOS flake input therefore does not trigger a CUDA
 rebuild. Updating NixLoom's lock or overriding a package remains an explicit
@@ -59,6 +61,7 @@ Import the complete option set and enable only the frontends you want:
   services.nixloom = {
     enable = true;
     acceleration = "cuda";
+    images.enable = true;
     openclaw.enable = true;
     sillytavern.enable = true;
   };

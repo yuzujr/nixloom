@@ -1,7 +1,7 @@
 import unittest
 from pathlib import Path
 
-from nixloom.config import Config, RuntimePaths
+from nixloom.config import Config, ConfigError, RuntimePaths
 from nixloom.runtime import image_command, llama_command, swap_document
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -30,6 +30,16 @@ class RuntimeTests(unittest.TestCase):
         self.assertEqual(set(document["models"]), {"qwen", "sd"})
         self.assertTrue(document["models"]["sd"]["unlisted"])
         self.assertEqual(document["models"]["sd"]["checkEndpoint"], "/v1/models")
+
+    def test_disabled_image_runtime_is_absent(self) -> None:
+        self.config.value["images"]["enabled"] = False
+        try:
+            document = swap_document(self.config, self.paths)
+            self.assertEqual(set(document["models"]), {"qwen"})
+            with self.assertRaisesRegex(ConfigError, "disabled"):
+                image_command(self.config, self.paths)
+        finally:
+            self.config.value["images"]["enabled"] = True
 
 
 if __name__ == "__main__":

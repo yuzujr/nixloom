@@ -12,11 +12,6 @@ let
   cacheDir = toString cfg.cacheDir;
   configFile = toString cfg.configFile;
   command = "${cfg.package}/bin/nixloom";
-  hostPath = lib.concatStringsSep ":" [
-    "/run/wrappers/bin"
-    "${config.home.profileDirectory}/bin"
-    "/run/current-system/sw/bin"
-  ];
   pinned = self.packages.${pkgs.stdenv.hostPlatform.system};
   capabilityPkgs = import nixpkgs {
     system = pkgs.stdenv.hostPlatform.system;
@@ -51,14 +46,17 @@ let
     "NIXLOOM_CACHE_DIR=${cacheDir}"
     "NIXLOOM_CONFIG_FILE=${configFile}"
     "NIXLOOM_ACCELERATION=${cfg.acceleration}"
+    "NIXLOOM_IMAGE_RUNTIME=${if cfg.images.enable then "enabled" else "disabled"}"
     "PATH=${
-      lib.makeBinPath [
-        cfg.package
-        cfg.swapPackage
-        cfg.llamaPackage
-        cfg.imagePackage
-      ]
-    }:${hostPath}"
+      lib.makeBinPath (
+        [
+          cfg.package
+          cfg.swapPackage
+          cfg.llamaPackage
+        ]
+        ++ lib.optional cfg.images.enable cfg.imagePackage
+      )
+    }"
   ]
   ++ lib.optional (cfg.acceleration == "cuda") "LD_LIBRARY_PATH=/run/opengl-driver/lib";
 in
@@ -130,6 +128,7 @@ in
       default = false;
       description = "Start the runtime target at login.";
     };
+    images.enable = lib.mkEnableOption "the stable-diffusion.cpp image runtime";
   };
 
   config = lib.mkIf cfg.enable {
@@ -160,6 +159,10 @@ in
         ) cfg.cudaCapabilities;
         message = "services.nixloom.cudaCapabilities entries must look like \"12.0\"";
       }
+      {
+        assertion = cfg.acceleration != "rocm" || pkgs.stdenv.hostPlatform.isx86_64;
+        message = "services.nixloom.acceleration = \"rocm\" is currently supported only on x86_64-linux";
+      }
     ];
 
     home.packages = [ cfg.package ];
@@ -169,6 +172,7 @@ in
       NIXLOOM_CACHE_DIR = cacheDir;
       NIXLOOM_CONFIG_FILE = configFile;
       NIXLOOM_ACCELERATION = cfg.acceleration;
+      NIXLOOM_IMAGE_RUNTIME = if cfg.images.enable then "enabled" else "disabled";
     };
 
     home.activation.nixloomDirectories = lib.hm.dag.entryAfter [ "writeBoundary" ] ''
@@ -195,7 +199,7 @@ in
 
     systemd.user.services.nixloom-runtime = {
       Unit = {
-        Description = "NixLoom llama.cpp and stable-diffusion.cpp swap runtime";
+        Description = "NixLoom model swap runtime";
         PartOf = [ "nixloom.target" ];
         X-SwitchMethod = "keep-old";
       };

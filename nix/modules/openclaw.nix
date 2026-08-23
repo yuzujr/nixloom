@@ -40,7 +40,7 @@ in
     systemd.user.services.nixloom-openclaw = {
       Unit = {
         Description = "NixLoom OpenClaw agent gateway";
-        Requires = [ "nixloom-runtime.service" ];
+        Wants = [ "nixloom-runtime.service" ];
         After = [ "nixloom-runtime.service" ];
         PartOf = [ "nixloom.target" ];
         X-SwitchMethod = "keep-old";

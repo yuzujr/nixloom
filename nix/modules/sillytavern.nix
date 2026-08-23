@@ -9,11 +9,6 @@ let
   cfg = config.services.nixloom;
   module = cfg.sillytavern;
   stateDir = toString cfg.stateDir;
-  hostPath = lib.concatStringsSep ":" [
-    "/run/wrappers/bin"
-    "${config.home.profileDirectory}/bin"
-    "/run/current-system/sw/bin"
-  ];
 in
 {
   options.services.nixloom.sillytavern = {
@@ -31,7 +26,7 @@ in
     systemd.user.services.nixloom-sillytavern = {
       Unit = {
         Description = "NixLoom SillyTavern";
-        Requires = [ "nixloom-runtime.service" ];
+        Wants = [ "nixloom-runtime.service" ];
         After = [ "nixloom-runtime.service" ];
         PartOf = [ "nixloom.target" ];
         X-SwitchMethod = "keep-old";
@@ -44,7 +39,7 @@ in
           "NIXLOOM_DATA_DIR=${toString cfg.dataDir}"
           "NIXLOOM_CACHE_DIR=${toString cfg.cacheDir}"
           "NIXLOOM_CONFIG_FILE=${toString cfg.configFile}"
-          "PATH=${lib.makeBinPath [ module.package ]}:${hostPath}"
+          "PATH=${lib.makeBinPath [ module.package ]}"
         ];
         Restart = "on-failure";
         RestartSec = "5s";
