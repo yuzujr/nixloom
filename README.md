@@ -115,9 +115,10 @@ nixloom logs runtime --follow
 nixloom stop
 ```
 
-`nixloom test` is the single useful live regression suite. It verifies normal
-chat, reasoning, vision, OpenAI-compatible image generation and swapping back
-to the LLM. Use `nixloom test --skip-image` for a fast LLM-only run.
+`nixloom test` is the single useful live regression suite. It verifies exact
+chat/reasoning/vision results, decodes a generated image, swaps back to the LLM,
+and makes OpenClaw invoke a harmless shell tool. Use `--skip-image` or
+`--skip-agent` to omit the expensive portions.
 
 `nixloom backup` temporarily stops the stack and archives only user-owned
 configuration plus OpenClaw and SillyTavern state. Models and caches are

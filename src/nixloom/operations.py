@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import base64
+import binascii
 import hashlib
 import json
 import os
@@ -202,7 +203,110 @@ def _png_data_url() -> str:
     return "data:image/png;base64," + base64.b64encode(png).decode()
 
 
-def live_test(config: Config, *, skip_image: bool = False) -> None:
+def _choice_text(response: dict[str, Any], label: str) -> str:
+    choices = response.get("choices")
+    if not isinstance(choices, list) or not choices or not isinstance(choices[0], dict):
+        raise ConfigError(f"{label} regression returned no choices")
+    message = choices[0].get("message")
+    content = message.get("content") if isinstance(message, dict) else None
+    if not isinstance(content, str) or not content.strip():
+        raise ConfigError(f"{label} regression returned no text")
+    return content.strip()
+
+
+def _image_bytes(response: dict[str, Any]) -> bytes:
+    data = response.get("data")
+    item = data[0] if isinstance(data, list) and data else None
+    encoded = item.get("b64_json") if isinstance(item, dict) else None
+    if not isinstance(encoded, str):
+        raise ConfigError("OpenAI Images regression returned no base64 image")
+    try:
+        image = base64.b64decode(encoded, validate=True)
+    except (ValueError, binascii.Error) as error:
+        raise ConfigError("OpenAI Images regression returned invalid base64") from error
+    if not image.startswith((b"\x89PNG\r\n\x1a\n", b"\xff\xd8\xff")):
+        raise ConfigError("OpenAI Images regression returned an unknown image format")
+    return image
+
+
+def _test_openclaw_agent(paths: RuntimePaths) -> None:
+    installed = (
+        subprocess.run(
+            ["systemctl", "--user", "cat", "nixloom-openclaw.service"],
+            check=False,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+        ).returncode
+        == 0
+    )
+    if not installed:
+        print("skip agent (OpenClaw module is not installed)")
+        return
+    token_path = paths.state / ".run/openclaw-gateway-token"
+    config_path = paths.state / ".openclaw/openclaw.json"
+    if not token_path.is_file() or not config_path.is_file():
+        raise ConfigError("OpenClaw runtime state is incomplete; start NixLoom first")
+    environment = os.environ.copy()
+    environment.update(
+        {
+            "OPENCLAW_STATE_DIR": str(config_path.parent),
+            "OPENCLAW_CONFIG_PATH": str(config_path),
+            "OPENCLAW_GATEWAY_TOKEN": token_path.read_text(encoding="utf-8").strip(),
+        }
+    )
+    result = subprocess.run(
+        [
+            "openclaw",
+            "agent",
+            "--agent",
+            "main",
+            "--session-id",
+            "nixloom-regression",
+            "--message",
+            "Use a shell tool to run printf NIXLOOM_AGENT_TOOL_OK, then reply with exactly that stdout.",
+            "--thinking",
+            "off",
+            "--timeout",
+            "900",
+            "--json",
+        ],
+        check=True,
+        capture_output=True,
+        text=True,
+        timeout=1000,
+        env=environment,
+    )
+    try:
+        response = json.loads(result.stdout)
+        details = response["result"]
+        visible = details["finalAssistantVisibleText"].strip()
+        tools = details["toolSummary"]
+    except (KeyError, TypeError, json.JSONDecodeError) as error:
+        raise ConfigError(
+            "OpenClaw agent regression returned an unexpected response"
+        ) from error
+    if visible != "NIXLOOM_AGENT_TOOL_OK":
+        raise ConfigError(
+            f"OpenClaw agent regression returned unexpected text: {visible!r}"
+        )
+    if (
+        tools.get("calls", 0) < 1
+        or "exec" not in tools.get("tools", [])
+        or tools.get("failures") != 0
+    ):
+        raise ConfigError(
+            "OpenClaw agent regression did not successfully invoke the exec tool"
+        )
+    print("ok  agent tool call")
+
+
+def live_test(
+    config: Config,
+    paths: RuntimePaths,
+    *,
+    skip_image: bool = False,
+    skip_agent: bool = False,
+) -> None:
     port = config.integer("ports.llama", minimum=1)
     base = f"http://127.0.0.1:{port}"
     model = config.string("llm.id")
@@ -254,10 +358,17 @@ def live_test(config: Config, *, skip_image: bool = False) -> None:
             },
         ),
     ]
+    expectations = {"chat": "OK", "reasoning": "42", "vision": "blue"}
     for label, payload in cases:
         response = _json_request(f"{base}/v1/chat/completions", payload, 900)
-        if not response.get("choices"):
-            raise ConfigError(f"{label} regression returned no choices")
+        content = _choice_text(response, label)
+        expected = expectations[label]
+        if label == "chat" and content != expected:
+            raise ConfigError(f"chat regression expected 'OK', got {content!r}")
+        if label != "chat" and expected not in content.lower():
+            raise ConfigError(
+                f"{label} regression expected {expected!r}, got {content!r}"
+            )
         print(f"ok  {label}")
     if config.boolean("images.enabled") and not skip_image:
         _, profile = config.image_profile()
@@ -273,13 +384,16 @@ def live_test(config: Config, *, skip_image: bool = False) -> None:
             },
             7200,
         )
-        if not response.get("data"):
-            raise ConfigError("OpenAI Images regression returned no image")
+        _image_bytes(response)
         print("ok  image (OpenAI Images API)")
         response = _json_request(f"{base}/v1/chat/completions", cases[0][1], 900)
-        if not response.get("choices"):
-            raise ConfigError("LLM did not recover after the image swap")
+        if _choice_text(response, "swap-back") != "OK":
+            raise ConfigError(
+                "LLM did not return the expected response after the image swap"
+            )
         print("ok  swap-back")
+    if not skip_agent:
+        _test_openclaw_agent(paths)
 
 
 def systemctl(*arguments: str, check: bool = True) -> subprocess.CompletedProcess[str]:

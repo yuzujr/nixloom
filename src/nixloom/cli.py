@@ -212,6 +212,16 @@ def command_backup(args: argparse.Namespace) -> None:
     print(f"backup written: {archive}")
 
 
+def command_test(args: argparse.Namespace) -> None:
+    paths, config = _context(args.config)
+    operations.live_test(
+        config,
+        paths,
+        skip_image=args.skip_image,
+        skip_agent=args.skip_agent,
+    )
+
+
 def parser() -> argparse.ArgumentParser:
     root = argparse.ArgumentParser(
         prog="nixloom", description="Modular local-AI runtime control"
@@ -271,11 +281,8 @@ def parser() -> argparse.ArgumentParser:
 
     test = commands.add_parser("test")
     test.add_argument("--skip-image", action="store_true")
-    test.set_defaults(
-        handler=lambda args: operations.live_test(
-            _context(args.config)[1], skip_image=args.skip_image
-        )
-    )
+    test.add_argument("--skip-agent", action="store_true")
+    test.set_defaults(handler=command_test)
 
     backup = commands.add_parser("backup")
     backup.add_argument("destination", nargs="?")
