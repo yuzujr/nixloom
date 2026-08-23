@@ -9,6 +9,7 @@ from nixloom.cli import (
     ServiceReport,
     ServiceSpec,
     command_logs,
+    command_service,
     command_start,
     command_status,
     command_stop,
@@ -55,6 +56,8 @@ class CliTests(unittest.TestCase):
         args = service_parser().parse_args(["llama", "--port", "8080"])
         self.assertEqual(args.service_name, "llama")
         self.assertEqual(args.port, "8080")
+        self.assertIsNone(args.config)
+        self.assertIs(args.handler, command_service)
 
     def test_status_combines_systemd_and_endpoint_state_once(self) -> None:
         output = io.StringIO()

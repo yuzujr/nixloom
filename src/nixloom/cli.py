@@ -621,7 +621,7 @@ def service_parser() -> argparse.ArgumentParser:
     service.add_argument("--host", default="127.0.0.1", metavar="ADDRESS")
     service.add_argument("--port", metavar="PORT")
     service.add_argument("--dry-run", action="store_true")
-    service.set_defaults(handler=command_service)
+    service.set_defaults(handler=command_service, config=None)
     return service
 
 
