@@ -182,6 +182,10 @@
                   echo "legacy runtime or platform coupling remains" >&2
                   exit 1
                 fi
+                if rg 'ExecStart = .* service |"cmd": "nixloom service ' nix src; then
+                  echo "public CLI service entry point is referenced internally" >&2
+                  exit 1
+                fi
                 touch "$out"
               '';
           module-evaluation =

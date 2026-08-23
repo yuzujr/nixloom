@@ -204,7 +204,7 @@ in
         X-SwitchMethod = "keep-old";
       };
       Service = {
-        ExecStart = "${command} service runtime";
+        ExecStart = "${command} __service runtime";
         WorkingDirectory = stateDir;
         Environment = environment;
         Restart = "on-failure";
