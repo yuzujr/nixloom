@@ -2,9 +2,18 @@
   description = "NixLoom: a modular local-AI runtime for NixOS";
 
   inputs.nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
+  inputs.home-manager = {
+    url = "github:nix-community/home-manager";
+    inputs.nixpkgs.follows = "nixpkgs";
+  };
 
   outputs =
-    { self, nixpkgs, ... }:
+    {
+      self,
+      nixpkgs,
+      home-manager,
+      ...
+    }:
     let
       lib = nixpkgs.lib;
       systems = [
@@ -26,6 +35,18 @@
         fileset = lib.fileset.unions [
           ./pyproject.toml
           ./config.yaml
+          ./src
+          ./tests
+        ];
+      };
+      architectureSource = lib.fileset.toSource {
+        root = ./.;
+        fileset = lib.fileset.unions [
+          ./README.md
+          ./config.yaml
+          ./flake.nix
+          ./nix
+          ./pyproject.toml
           ./src
           ./tests
         ];
@@ -78,9 +99,13 @@
         let
           yuanbao = mkYuanbaoPlugin pkgs;
           # nixpkgs 2026.6.33 still carries the previous fixed-output hash.
-          openclaw = pkgs.openclaw.overrideAttrs (_: {
-            pnpmDepsHash = "sha256-rhfO66Nm5JDvozQAXC953QWbC9beUubg+Llykx59M/Q=";
-          });
+          openclaw =
+            if lib.getVersion pkgs.openclaw == "2026.6.33" then
+              pkgs.openclaw.overrideAttrs (_: {
+                pnpmDepsHash = "sha256-rhfO66Nm5JDvozQAXC953QWbC9beUubg+Llykx59M/Q=";
+              })
+            else
+              pkgs.openclaw;
         in
         pkgs.symlinkJoin {
           name = "nixloom-openclaw-runtime";
@@ -90,21 +115,6 @@
             ln -s ${yuanbao} "$out/share/nixloom/openclaw-plugin-yuanbao"
           '';
         };
-      mkSillyTavern =
-        pkgs:
-        pkgs.sillytavern.overrideAttrs (old: {
-          # SillyTavern 1.18 drops proxy base paths for A1111-compatible calls.
-          # Its sdcpp integration still uses those calls for generation, so keep
-          # the /upstream/sd prefix until the upstream fix reaches nixpkgs.
-          postPatch = (old.postPatch or "") + ''
-            sed -i "s|\([A-Za-z0-9_]*\)\.pathname = '/sdapi|\1.pathname = \1.pathname.replace(/[/]+\$/, \"\") + '/sdapi|g" \
-              src/endpoints/stable-diffusion.js
-            if grep -q "\.pathname = '/sdapi" src/endpoints/stable-diffusion.js; then
-              echo "unpatched sdapi path assignments remain" >&2
-              exit 1
-            fi
-          '';
-        });
     in
     {
       packages = forAllSystems (
@@ -120,15 +130,17 @@
           default = mkNixloom pkgs;
           nixloom = mkNixloom pkgs;
           openclaw = mkOpenclaw pkgs;
-          sillytavern = mkSillyTavern pkgs;
+          sillytavern = pkgs.sillytavern;
           llama-swap = pkgs.llama-swap;
           llama-cpu = pkgs.llama-cpp;
           llama-cuda = llamaCuda;
           llama-vulkan = pkgs.llama-cpp-vulkan;
-          llama-rocm = pkgs.llama-cpp-rocm;
           image-cpu = pkgs.stable-diffusion-cpp;
           image-cuda = pkgs.stable-diffusion-cpp-cuda;
           image-vulkan = pkgs.stable-diffusion-cpp-vulkan;
+        }
+        // lib.optionalAttrs (system == "x86_64-linux") {
+          llama-rocm = pkgs.llama-cpp-rocm;
           image-rocm = pkgs.stable-diffusion-cpp-rocm;
         }
       );
@@ -164,14 +176,67 @@
                 nativeBuildInputs = [ pkgs.ripgrep ];
               }
               ''
-                cd ${source}
+                cd ${architectureSource}
                 test -z "$(find . -name '*.sh' -print -quit)"
-                if rg -i 'koboldcpp|open[ -]webui|hermes-agent|deployment\.frontends|100\.64\.0\.0' .; then
+                if rg -i 'kobold[c]pp|open[[:space:]_-]*web[u]i|hermes[-_]?[a]gent|deployment\.frontends|100\.64\.0\.0' .; then
                   echo "legacy runtime or platform coupling remains" >&2
                   exit 1
                 fi
                 touch "$out"
               '';
+          module-evaluation =
+            let
+              baseModule = {
+                home.username = "nixloom-test";
+                home.homeDirectory = "/home/nixloom-test";
+                home.stateVersion = "26.05";
+              };
+              serviceNames =
+                modules:
+                builtins.attrNames
+                  (home-manager.lib.homeManagerConfiguration {
+                    inherit pkgs;
+                    modules = [ baseModule ] ++ modules;
+                  }).config.systemd.user.services;
+              matrix = {
+                core = serviceNames [
+                  self.homeManagerModules.core
+                  { services.nixloom.enable = true; }
+                ];
+                openclaw = serviceNames [
+                  self.homeManagerModules.openclaw
+                  {
+                    services.nixloom.enable = true;
+                    services.nixloom.openclaw.enable = true;
+                  }
+                ];
+                sillytavern = serviceNames [
+                  self.homeManagerModules.sillytavern
+                  {
+                    services.nixloom.enable = true;
+                    services.nixloom.sillytavern.enable = true;
+                  }
+                ];
+                complete = serviceNames [
+                  self.homeManagerModules.default
+                  {
+                    services.nixloom.enable = true;
+                    services.nixloom.images.enable = true;
+                    services.nixloom.openclaw.enable = true;
+                    services.nixloom.sillytavern.enable = true;
+                  }
+                ];
+              };
+              has = name: services: lib.elem name services;
+            in
+            assert has "nixloom-runtime" matrix.core;
+            assert !(has "nixloom-openclaw" matrix.core);
+            assert has "nixloom-openclaw" matrix.openclaw;
+            assert !(has "nixloom-sillytavern" matrix.openclaw);
+            assert has "nixloom-sillytavern" matrix.sillytavern;
+            assert has "nixloom-openclaw" matrix.complete;
+            assert has "nixloom-sillytavern" matrix.complete;
+            pkgs.writeText "nixloom-module-matrix.json" (builtins.toJSON matrix);
         }
       );
 
