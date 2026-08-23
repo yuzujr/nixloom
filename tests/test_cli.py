@@ -12,6 +12,8 @@ from nixloom.cli import (
     command_start,
     command_status,
     command_stop,
+    parser,
+    service_parser,
 )
 from nixloom.config import Config, RuntimePaths
 
@@ -40,6 +42,19 @@ class CliTests(unittest.TestCase):
     ) -> list[ServiceReport]:
         sub = "running" if active == "active" else "dead"
         return [ServiceReport(spec, active, sub, health) for spec in self.specs]
+
+    def test_help_uses_documented_gnu_style_and_hides_internal_service(self) -> None:
+        rendered = parser().format_help()
+        self.assertTrue(rendered.startswith("Usage: nixloom [OPTION]... COMMAND"))
+        self.assertIn("Commands:\n", rendered)
+        self.assertIn("Options:\n", rendered)
+        self.assertIn("Examples:\n", rendered)
+        self.assertNotIn("\n    service", rendered)
+
+    def test_hidden_service_entry_point_remains_parseable(self) -> None:
+        args = service_parser().parse_args(["llama", "--port", "8080"])
+        self.assertEqual(args.service_name, "llama")
+        self.assertEqual(args.port, "8080")
 
     def test_status_combines_systemd_and_endpoint_state_once(self) -> None:
         output = io.StringIO()

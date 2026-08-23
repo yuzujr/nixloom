@@ -158,13 +158,13 @@ def image_command(
 def swap_document(config: Config, paths: RuntimePaths) -> dict[str, Any]:
     models: dict[str, Any] = {
         config.string("llm.id"): {
-            "cmd": "nixloom service llama --port ${PORT}",
+            "cmd": "nixloom __service llama --port ${PORT}",
             "checkEndpoint": "/health",
         }
     }
     if config.boolean("images.enabled"):
         models["sd"] = {
-            "cmd": "nixloom service image --port ${PORT}",
+            "cmd": "nixloom __service image --port ${PORT}",
             "checkEndpoint": "/v1/models",
             "ttl": 300,
             "unlisted": True,

@@ -32,7 +32,7 @@ in
         X-SwitchMethod = "keep-old";
       };
       Service = {
-        ExecStart = "${cfg.package}/bin/nixloom service sillytavern";
+        ExecStart = "${cfg.package}/bin/nixloom __service sillytavern";
         WorkingDirectory = stateDir;
         Environment = [
           "NIXLOOM_STATE_DIR=${stateDir}"

@@ -46,7 +46,7 @@ in
         X-SwitchMethod = "keep-old";
       };
       Service = {
-        ExecStart = "${cfg.package}/bin/nixloom service openclaw";
+        ExecStart = "${cfg.package}/bin/nixloom __service openclaw";
         WorkingDirectory = stateDir;
         Environment = environment;
         Restart = "on-failure";

@@ -25,6 +25,48 @@ UNIT_NAMES = {
 }
 
 
+class GNUHelpFormatter(argparse.RawDescriptionHelpFormatter):
+    """Render argparse help like a conventional GNU command."""
+
+    def __init__(self, *args: object, **kwargs: object) -> None:
+        kwargs.setdefault("max_help_position", 30)
+        super().__init__(*args, **kwargs)
+
+    def start_section(self, heading: str | None) -> None:
+        headings = {
+            "positional arguments": "Arguments",
+            "options": "Options",
+            "commands": "Commands",
+        }
+        super().start_section(headings.get(heading, heading))
+
+    def format_help(self) -> str:
+        return super().format_help().replace("usage:", "Usage:", 1)
+
+
+class GNUArgumentParser(argparse.ArgumentParser):
+    def __init__(self, *args: object, **kwargs: object) -> None:
+        kwargs.setdefault("formatter_class", GNUHelpFormatter)
+        # Python 3.14 colors argparse help by default. Keep output stable when
+        # redirected, logged, tested, or run with an older Python release.
+        if sys.version_info >= (3, 14):
+            kwargs.setdefault("color", False)
+        super().__init__(*args, **kwargs)
+
+    def error(self, message: str) -> None:
+        if message == "the following arguments are required: COMMAND":
+            message = "missing command"
+        elif message.startswith("argument COMMAND: invalid choice: "):
+            choice = message.removeprefix("argument COMMAND: invalid choice: ").split(
+                " ", 1
+            )[0]
+            message = f"unknown command {choice}"
+        self.exit(
+            2,
+            f"{self.prog}: {message}\nTry '{self.prog} --help' for more information.\n",
+        )
+
+
 @dataclass(frozen=True)
 class ServiceSpec:
     name: str
@@ -426,42 +468,105 @@ def command_test(args: argparse.Namespace) -> None:
 
 
 def parser() -> argparse.ArgumentParser:
-    root = argparse.ArgumentParser(
+    root = GNUArgumentParser(
         prog="nixloom",
-        description="Run and inspect the modular NixLoom local-AI stack.",
+        usage="%(prog)s [OPTION]... COMMAND [ARG]...",
+        description="NixLoom — one local-AI control surface",
+        epilog="""Examples:
+  nixloom start                 Start the stack and load the configured model
+  nixloom status                Show services, endpoints and the loaded model
+  nixloom logs openclaw -f      Follow the OpenClaw journal
+
+Run 'nixloom COMMAND --help' for details about a command.""",
     )
-    root.add_argument("--config", help="configuration file override")
+    root.add_argument(
+        "-c", "--config", metavar="FILE", help="use FILE instead of the default config"
+    )
     root.add_argument("--version", action="version", version=f"%(prog)s {__version__}")
-    commands = root.add_subparsers(dest="command", required=True, title="commands")
+    commands = root.add_subparsers(
+        dest="command", required=True, title="Commands", metavar="COMMAND"
+    )
 
     for name, help_text in (
         ("start", "Start services and load the configured LLM"),
         ("restart", "Restart services and reload the configured LLM"),
     ):
-        item = commands.add_parser(name, help=help_text, description=help_text)
+        item = commands.add_parser(
+            name,
+            help=help_text,
+            description=help_text + ".",
+            usage="%(prog)s [OPTION]...",
+        )
         item.add_argument("--dry-run", action="store_true", help="show the plan only")
         item.set_defaults(handler=command_start, restart=name == "restart")
-    commands.add_parser("stop", help="Stop every NixLoom service").set_defaults(
-        handler=command_stop
-    )
     commands.add_parser(
-        "status", help="Show combined systemd, endpoint, and model state"
+        "stop",
+        help="Stop every NixLoom service",
+        description="Stop every NixLoom service.",
+        usage="%(prog)s",
+    ).set_defaults(handler=command_stop)
+    commands.add_parser(
+        "status",
+        help="Show combined systemd, endpoint, and model state",
+        description="Show combined systemd, endpoint, and model state.",
+        usage="%(prog)s",
     ).set_defaults(handler=command_status)
-    logs = commands.add_parser("logs", help="Read one service or the combined journal")
-    logs.add_argument("service", choices=UNIT_NAMES, nargs="?", default="all")
-    logs.add_argument("--follow", "-f", action="store_true", help="follow new entries")
-    logs.add_argument("--lines", "-n", type=int, default=100, help="entries to show")
+    logs = commands.add_parser(
+        "logs",
+        help="Read one service or the combined journal",
+        description="Read one service or the combined NixLoom journal.",
+        usage="%(prog)s [OPTION]... [SERVICE]",
+    )
+    logs.add_argument(
+        "service",
+        choices=UNIT_NAMES,
+        nargs="?",
+        default="all",
+        metavar="SERVICE",
+        help="runtime, openclaw, sillytavern, or all (default: all)",
+    )
+    logs.add_argument("-f", "--follow", action="store_true", help="follow new entries")
+    logs.add_argument(
+        "-n",
+        "--lines",
+        type=int,
+        default=100,
+        metavar="N",
+        help="show the last N entries (default: 100)",
+    )
     logs.set_defaults(handler=command_logs)
 
-    config = commands.add_parser("config", help="Initialize or validate configuration")
-    config.add_argument("config_action", choices=("check", "init"))
-    config.add_argument("--verbose", action="store_true")
-    config.add_argument("--dry-run", action="store_true")
+    config = commands.add_parser(
+        "config",
+        help="Initialize or validate configuration",
+        description="Initialize or validate the NixLoom configuration.",
+        usage="%(prog)s ACTION [OPTION]...",
+    )
+    config.add_argument(
+        "config_action",
+        choices=("check", "init"),
+        metavar="ACTION",
+        help="check or init",
+    )
+    config.add_argument(
+        "--verbose", action="store_true", help="show generated launch commands"
+    )
+    config.add_argument("--dry-run", action="store_true", help="show changes only")
     config.set_defaults(handler=command_config)
 
-    models = commands.add_parser("models", help="Verify or download model assets")
-    models.add_argument("models_action", choices=("check", "download"))
-    models.add_argument("assets", nargs="*")
+    models = commands.add_parser(
+        "models",
+        help="Verify or download model assets",
+        description="Verify or download pinned model assets.",
+        usage="%(prog)s ACTION [ASSET]...",
+    )
+    models.add_argument(
+        "models_action",
+        choices=("check", "download"),
+        metavar="ACTION",
+        help="check or download",
+    )
+    models.add_argument("assets", nargs="*", metavar="ASSET", help="asset name")
 
     def models_handler(args: argparse.Namespace) -> None:
         paths, loaded = _context(args.config)
@@ -474,34 +579,60 @@ def parser() -> argparse.ArgumentParser:
 
     models.set_defaults(handler=models_handler)
 
-    test = commands.add_parser("test", help="Run live end-to-end regression checks")
+    test = commands.add_parser(
+        "test",
+        help="Run live end-to-end regression checks",
+        description="Run live end-to-end regression checks.",
+        usage="%(prog)s [OPTION]...",
+    )
     test.add_argument("--skip-image", action="store_true", help="skip image generation")
     test.add_argument(
         "--skip-agent", action="store_true", help="skip the agent tool call"
     )
     test.set_defaults(handler=command_test)
 
-    backup = commands.add_parser("backup", help="Back up private frontend state")
-    backup.add_argument("destination", nargs="?")
-    backup.add_argument("--dry-run", action="store_true")
+    backup = commands.add_parser(
+        "backup",
+        help="Back up private frontend state",
+        description="Back up private frontend state without model files.",
+        usage="%(prog)s [OPTION]... [DESTINATION]",
+    )
+    backup.add_argument(
+        "destination", nargs="?", metavar="DESTINATION", help="backup directory"
+    )
+    backup.add_argument("--dry-run", action="store_true", help="show the plan only")
     backup.set_defaults(handler=command_backup)
 
-    service = commands.add_parser(
-        "service", help="Internal service entry point used by systemd"
+    return root
+
+
+def service_parser() -> argparse.ArgumentParser:
+    """Parser for the deliberately hidden systemd process entry point."""
+    service = GNUArgumentParser(
+        prog="nixloom __service",
+        usage="%(prog)s NAME [OPTION]...",
+        description="Internal NixLoom service entry point.",
     )
     service.add_argument(
-        "service_name", choices=("runtime", "llama", "image", "openclaw", "sillytavern")
+        "service_name",
+        choices=("runtime", "llama", "image", "openclaw", "sillytavern"),
+        metavar="NAME",
     )
-    service.add_argument("--host", default="127.0.0.1")
-    service.add_argument("--port")
+    service.add_argument("--host", default="127.0.0.1", metavar="ADDRESS")
+    service.add_argument("--port", metavar="PORT")
     service.add_argument("--dry-run", action="store_true")
     service.set_defaults(handler=command_service)
-    return root
+    return service
 
 
 def main() -> int:
     try:
-        args = parser().parse_args()
+        argv = sys.argv[1:]
+        args = (
+            service_parser().parse_args(argv[1:])
+            if argv[:1] == ["__service"]
+            else parser().parse_args(argv)
+        )
         result = args.handler(args)
         return result if isinstance(result, int) else 0
     except (
