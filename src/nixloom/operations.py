@@ -333,7 +333,9 @@ def live_test(
                         "content": "What is 17 + 25? Give only the number.",
                     }
                 ],
-                "max_tokens": 128,
+                # Leave room for the reasoning trace and the final answer;
+                # llama.cpp accounts both against this request budget.
+                "max_tokens": 512,
                 "chat_template_kwargs": {"enable_thinking": True},
             },
         ),
