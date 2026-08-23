@@ -1,255 +1,227 @@
 {
-  description = "NixLoom: a reproducible local AI runtime for NixOS";
+  description = "NixLoom: a modular local-AI runtime for NixOS";
 
   inputs.nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
-  inputs.hermes-agent.url = "github:NousResearch/hermes-agent";
 
-  outputs = { self, nixpkgs, hermes-agent, ... }:
+  outputs =
+    { self, nixpkgs, ... }:
     let
-      system = "x86_64-linux";
-      pkgs = import nixpkgs {
-        inherit system;
-        config.allowUnfree = true;
-      };
-      llamaVulkan = pkgs.llama-cpp-vulkan;
-      llamaCuda = pkgs.llama-cpp.override {
-        cudaSupport = true;
-        vulkanSupport = false;
-      };
-      hermesPackage = hermes-agent.packages.${system}.default;
-      # Two nixpkgs 1.110 packaging fixes needed for image generation:
-      # embd_res/ (CLIP tokenizer data, read from bin/embd_res via realpath)
-      # is not installed — a backend-independent bug, so it is fixed for every
-      # koboldcpp variant — and koboldcpp_cublas.so uses driver-API symbols
-      # (cuMemCreate) without linking libcuda, which only exists at the NixOS
-      # driver path at runtime.
-      koboldFixEmbdRes = kobold: kobold.overrideAttrs (old: {
-        postInstall = (old.postInstall or "") + ''
-          mkdir -p $out/bin/embd_res
-          cp -r embd_res/. $out/bin/embd_res/
-        '';
-      });
-      koboldVulkan = koboldFixEmbdRes pkgs.koboldcpp;
-      koboldCuda = (koboldFixEmbdRes (pkgs.koboldcpp.override { cublasSupport = true; })).overrideAttrs (old: {
-        nativeBuildInputs = (old.nativeBuildInputs or [ ]) ++ [ pkgs.patchelf ];
-        postFixup = (old.postFixup or "") + ''
-          patchelf --add-needed /run/opengl-driver/lib/libcuda.so.1 \
-            $out/bin/koboldcpp_cublas.so
-        '';
-      });
-      # SillyTavern 1.18.0 overwrites url.pathname when calling A1111 image
-      # endpoints, dropping base paths like llama-swap's /upstream/sd.
-      # Prefix the original path instead so the swap proxy keeps working.
-      # Backport of upstream PR #5427 (merged 2026-04, fixes issue #4411);
-      # drop this override once nixpkgs ships a release containing it.
-      sillytavernPatched = pkgs.sillytavern.overrideAttrs (old: {
-        postPatch = (old.postPatch or "") + ''
-          sed -i "s|\([A-Za-z0-9_]*\)\.pathname = '/sdapi|\1.pathname = \1.pathname.replace(/[/]+\$/, \"\") + '/sdapi|g" \
-            src/endpoints/stable-diffusion.js
-          if grep -q "\.pathname = '/sdapi" src/endpoints/stable-diffusion.js; then
-            echo "unpatched sdapi path assignments remain" >&2
-            exit 1
-          fi
-        '';
-      });
-      commonPackages = [
-        pkgs.bubblewrap
-        pkgs.curl
-        pkgs.coreutils
-        pkgs.findutils
-        pkgs.gnutar
-        pkgs.gzip
-        pkgs.jq
-        pkgs.procps
-        pkgs.python3
-        pkgs.systemd
-        pkgs.util-linux
-        pkgs.yq-go
-        pkgs.llama-swap
-        pkgs.open-webui
-        sillytavernPatched
-        hermesPackage
+      lib = nixpkgs.lib;
+      systems = [
+        "x86_64-linux"
+        "aarch64-linux"
       ];
-      runtimePackages = [ llamaCuda koboldCuda ] ++ commonPackages;
-      source = builtins.path {
-        path = ./.;
-        name = "nixloom-source";
-        filter = path: type:
-          let
-            root = toString ./.;
-            value = toString path;
-            relative = nixpkgs.lib.removePrefix "${root}/" value;
-            included = [ "bin" "config" "scripts" "tests" ];
-          in
-          value == root
-          || relative == "config.yaml"
-          || builtins.any (prefix:
-            relative == prefix || nixpkgs.lib.hasPrefix "${prefix}/" relative
-          ) included;
+      forAllSystems = lib.genAttrs systems;
+      pkgsFor =
+        system:
+        import nixpkgs {
+          inherit system;
+          config = {
+            allowUnfree = true;
+            allowInsecurePredicate = pkg: lib.getName pkg == "openclaw";
+          };
+        };
+      source = lib.fileset.toSource {
+        root = ./.;
+        fileset = lib.fileset.unions [
+          ./pyproject.toml
+          ./config.yaml
+          ./src
+          ./tests
+        ];
       };
-      nixloom = pkgs.stdenvNoCC.mkDerivation {
-        pname = "nixloom";
-        version = "0.1.0";
-        src = source;
-        nativeBuildInputs = [ pkgs.makeWrapper ];
-        installPhase = ''
-          runHook preInstall
-          mkdir -p "$out/bin" "$out/libexec/nixloom" "$out/share/nixloom"
-          cp -r bin config scripts tests config.yaml "$out/libexec/nixloom/"
-          cp config.yaml "$out/share/nixloom/"
-          chmod +x "$out/libexec/nixloom/bin/nixloom" \
-            "$out/libexec/nixloom/scripts/"*.sh \
-            "$out/libexec/nixloom/tests/"*.sh \
-            "$out/libexec/nixloom/tests/benchmark.py"
-          patchShebangs "$out/libexec/nixloom"
-          makeWrapper "$out/libexec/nixloom/bin/nixloom" "$out/bin/nixloom" \
-            --set NIXLOOM_LIBEXEC "$out/libexec/nixloom" \
-            --set NIXLOOM_SHARE "$out/share/nixloom" \
-            --prefix PATH : "${pkgs.lib.makeBinPath runtimePackages}" \
-            --prefix LD_LIBRARY_PATH : /run/opengl-driver/lib
-          runHook postInstall
-        '';
-      };
-      shellHook = backend: ''
-        export NIXLOOM_STATE_DIR="''${XDG_STATE_HOME:-$HOME/.local/state}/nixloom"
-        export NIXLOOM_DATA_DIR="''${XDG_DATA_HOME:-$HOME/.local/share}/nixloom"
-        export NIXLOOM_CACHE_DIR="''${XDG_CACHE_HOME:-$HOME/.cache}/nixloom"
-        export NIXLOOM_CONFIG_DIR="''${XDG_CONFIG_HOME:-$HOME/.config}/nixloom"
-        export LD_LIBRARY_PATH="/run/opengl-driver/lib:$LD_LIBRARY_PATH"
-
-        echo "NixLoom ${backend} development shell ready."
-        echo "Run nixloom --help for the supported interface."
-      '';
-    in
-    {
-      # GPU integration checks are intentionally manual; `nix flake check`
-      # remains deterministic and only lints scripts and config consistency.
-      checks.${system} = {
-        # Globbed so a new script cannot silently escape linting.
-        shellcheck = pkgs.runCommand "shellcheck" {
-          nativeBuildInputs = [ pkgs.shellcheck ];
-        } ''
-          cd ${self}
-          shellcheck --severity=warning -x \
-            bin/nixloom scripts/*.sh config/*.sh tests/*.sh
-          touch $out
-        '';
-
-        python-lint = pkgs.runCommand "python-lint" {
-          nativeBuildInputs = [ pkgs.python3 ];
-        } ''
-          cd ${self}
-          PYTHONPYCACHEPREFIX=$TMPDIR python3 -m py_compile scripts/*.py tests/*.py
-          touch $out
-        '';
-
-        config-contract = pkgs.runCommand "config-contract" {
-          nativeBuildInputs = [ pkgs.bash pkgs.jq pkgs.yq-go pkgs.python3 ];
-        } ''
-          cp -r ${self} source
-          chmod -R u+w source
-          cd source
-          patchShebangs bin scripts tests
-          export HERMES_API_KEY=test
-          export NIXLOOM_CONFIG_FILE="$PWD/config.yaml"
-          export NIXLOOM_STATE_DIR="$PWD/.state"
-          export NIXLOOM_DATA_DIR="$PWD/.data"
-          export NIXLOOM_CACHE_DIR="$PWD/.cache"
-          bash -c 'source config/lib.sh; check_config_keys'
-          ./scripts/llama.sh --dry-run >/dev/null
-          ./scripts/swap.sh --dry-run >/dev/null
-          ./bin/nixloom config check >/dev/null
-          touch $out
-        '';
-
-        # A normal installation has only the immutable package and empty
-        # writable directories. It must not depend on a source checkout,
-        # copied config or a pre-existing user config.
-        clone-free-install = pkgs.runCommand "clone-free-install" {
-          nativeBuildInputs = [ pkgs.gnugrep ];
-        } ''
-          export XDG_CONFIG_HOME="$PWD/config"
-          export XDG_STATE_HOME="$PWD/state"
-          export XDG_DATA_HOME="$PWD/data"
-          export XDG_CACHE_HOME="$PWD/cache"
-          ${nixloom}/bin/nixloom config check 2>config.stderr
-          grep -q 'web search is disabled' config.stderr
-          test ! -e config/nixloom/config.yaml
-          test -r ${nixloom}/share/nixloom/config.yaml
-          ${nixloom}/bin/nixloom config init --yes
-          test -f config/nixloom/config.yaml
-          test "$(stat -c '%a' config/nixloom/config.yaml)" = 600
-          test "$(stat -c '%a' config/nixloom)" = 700
-          if ${nixloom}/bin/nixloom models check qwen36_mmproj \
-            >models.stdout 2>models.stderr; then
-            echo "an empty data directory unexpectedly passed model verification" >&2
-            exit 1
-          fi
-          grep -q 'missing or invalid.*qwen36_mmproj' models.stderr
-          touch $out
-        '';
-
-        # Keep the publishable source free of host identity and runtime data.
-        # This guards against a future edit accidentally committing the
-        # developer's absolute home path, Tailnet host, secrets, databases or
-        # model weights.
-        public-tree = pkgs.runCommand "public-tree" {
-          nativeBuildInputs = [ pkgs.ripgrep pkgs.yq-go ];
-        } ''
-          cd ${self}
-          if rg -n --hidden \
-            '(/home/[[:alnum:]_.-]+/|[[:alnum:]-]+\.tail[[:xdigit:]]+\.ts\.net|100\.(6[4-9]|[78][0-9]|9[0-9]|1[01][0-9]|12[0-7])\.[0-9]{1,3}\.[1-9][0-9]{0,2})' \
-            .; then
-            echo "publishable source contains a host-specific path or address" >&2
-            exit 1
-          fi
-          for private in .webui_secret_key; do
-            if [[ -e "$private" ]]; then
-              echo "publishable source contains private file: $private" >&2
+      mkNixloom =
+        pkgs:
+        pkgs.python3Packages.buildPythonApplication {
+          pname = "nixloom";
+          version = "0.2.0";
+          src = source;
+          pyproject = true;
+          build-system = [ pkgs.python3Packages.setuptools ];
+          dependencies = [ pkgs.python3Packages.pyyaml ];
+          nativeBuildInputs = [ pkgs.makeWrapper ];
+          nativeCheckInputs = [ pkgs.python3Packages.pyyaml ];
+          checkPhase = ''
+            runHook preCheck
+            PYTHONPATH="$PWD/src''${PYTHONPATH:+:$PYTHONPATH}" python -m unittest discover -s tests -v
+            runHook postCheck
+          '';
+          pythonImportsCheck = [ "nixloom" ];
+          postInstall = ''
+            mkdir -p "$out/share/nixloom"
+            cp config.yaml "$out/share/nixloom/config.yaml"
+          '';
+          postFixup = ''
+            wrapProgram "$out/bin/nixloom" \
+              --set NIXLOOM_SHARE "$out/share/nixloom"
+          '';
+        };
+      mkYuanbaoPlugin =
+        pkgs:
+        pkgs.buildNpmPackage {
+          pname = "openclaw-plugin-yuanbao";
+          version = "2.18.2";
+          src = ./nix/openclaw-yuanbao;
+          npmDepsHash = "sha256-Z8x0z5Uq6EvVTFNLipkbLfDkOu3cbS7t507tFW8W0Bo=";
+          dontNpmBuild = true;
+          installPhase = ''
+            runHook preInstall
+            mkdir -p "$out"
+            cp -r node_modules/openclaw-plugin-yuanbao/. "$out/"
+            cp -r node_modules "$out/node_modules"
+            rm -rf "$out/node_modules/openclaw-plugin-yuanbao"
+            runHook postInstall
+          '';
+        };
+      mkOpenclaw =
+        pkgs:
+        let
+          yuanbao = mkYuanbaoPlugin pkgs;
+          # nixpkgs 2026.6.33 still carries the previous fixed-output hash.
+          openclaw = pkgs.openclaw.overrideAttrs (_: {
+            pnpmDepsHash = "sha256-rhfO66Nm5JDvozQAXC953QWbC9beUubg+Llykx59M/Q=";
+          });
+        in
+        pkgs.symlinkJoin {
+          name = "nixloom-openclaw-runtime";
+          paths = [ openclaw ];
+          postBuild = ''
+            mkdir -p "$out/share/nixloom"
+            ln -s ${yuanbao} "$out/share/nixloom/openclaw-plugin-yuanbao"
+          '';
+        };
+      mkSillyTavern =
+        pkgs:
+        pkgs.sillytavern.overrideAttrs (old: {
+          # SillyTavern 1.18 drops proxy base paths for A1111-compatible calls.
+          # Its sdcpp integration still uses those calls for generation, so keep
+          # the /upstream/sd prefix until the upstream fix reaches nixpkgs.
+          postPatch = (old.postPatch or "") + ''
+            sed -i "s|\([A-Za-z0-9_]*\)\.pathname = '/sdapi|\1.pathname = \1.pathname.replace(/[/]+\$/, \"\") + '/sdapi|g" \
+              src/endpoints/stable-diffusion.js
+            if grep -q "\.pathname = '/sdapi" src/endpoints/stable-diffusion.js; then
+              echo "unpatched sdapi path assignments remain" >&2
               exit 1
             fi
-          done
-          if find . -type f \( \
-            -name '*.gguf' -o -name '*.safetensors' -o -name '*.db' \
-          \) -print -quit | grep -q .; then
-            echo "publishable source contains a model weight or database" >&2
-            exit 1
-          fi
-          if [[ "$(yq -r '.deployment.remote' config.yaml)" != false ]]; then
-            echo "the committed deployment must default to loopback-only" >&2
-            exit 1
-          fi
-          touch $out
-        '';
-      };
+          '';
+        });
+    in
+    {
+      packages = forAllSystems (
+        system:
+        let
+          pkgs = pkgsFor system;
+          llamaCuda = pkgs.llama-cpp.override {
+            cudaSupport = true;
+            vulkanSupport = false;
+          };
+        in
+        {
+          default = mkNixloom pkgs;
+          nixloom = mkNixloom pkgs;
+          openclaw = mkOpenclaw pkgs;
+          sillytavern = mkSillyTavern pkgs;
+          llama-swap = pkgs.llama-swap;
+          llama-cpu = pkgs.llama-cpp;
+          llama-cuda = llamaCuda;
+          llama-vulkan = pkgs.llama-cpp-vulkan;
+          llama-rocm = pkgs.llama-cpp-rocm;
+          image-cpu = pkgs.stable-diffusion-cpp;
+          image-cuda = pkgs.stable-diffusion-cpp-cuda;
+          image-vulkan = pkgs.stable-diffusion-cpp-vulkan;
+          image-rocm = pkgs.stable-diffusion-cpp-rocm;
+        }
+      );
 
-      packages.${system}.default = nixloom;
-      apps.${system}.default = {
-        type = "app";
-        program = "${nixloom}/bin/nixloom";
-        meta.description = "Control the NixLoom local AI runtime";
-      };
-      homeManagerModules.default = { lib, pkgs, ... }: {
-        imports = [ ./nix/home-manager.nix ];
-        services.nixloom.package = lib.mkDefault
-          self.packages.${pkgs.stdenv.hostPlatform.system}.default;
-      };
-
-      devShells.${system} = {
-        default = pkgs.mkShell {
-          packages = [ nixloom ] ++ runtimePackages;
-          shellHook = shellHook "CUDA";
+      apps = forAllSystems (system: {
+        default = {
+          type = "app";
+          program = "${self.packages.${system}.default}/bin/nixloom";
         };
+      });
 
-        vulkan = pkgs.mkShell {
-          packages = [ nixloom llamaVulkan koboldVulkan pkgs.vulkan-tools ] ++ commonPackages;
-          shellHook = shellHook "Vulkan";
-        };
+      checks = forAllSystems (
+        system:
+        let
+          pkgs = pkgsFor system;
+        in
+        {
+          package = self.packages.${system}.default;
+          python-lint =
+            pkgs.runCommand "nixloom-python-lint"
+              {
+                nativeBuildInputs = [ pkgs.ruff ];
+              }
+              ''
+                cd ${source}
+                export RUFF_CACHE_DIR="$TMPDIR/ruff-cache"
+                ruff check src tests
+                touch "$out"
+              '';
+          architecture =
+            pkgs.runCommand "nixloom-architecture"
+              {
+                nativeBuildInputs = [ pkgs.ripgrep ];
+              }
+              ''
+                cd ${source}
+                test -z "$(find . -name '*.sh' -print -quit)"
+                if rg -i 'koboldcpp|open[ -]webui|hermes-agent|deployment\.frontends|100\.64\.0\.0' .; then
+                  echo "legacy runtime or platform coupling remains" >&2
+                  exit 1
+                fi
+                touch "$out"
+              '';
+        }
+      );
 
-        cuda = pkgs.mkShell {
-          packages = [ nixloom ] ++ runtimePackages;
-          shellHook = shellHook "CUDA";
+      devShells = forAllSystems (
+        system:
+        let
+          pkgs = pkgsFor system;
+          python = pkgs.python3.withPackages (packages: [ packages.pyyaml ]);
+        in
+        {
+          default = pkgs.mkShell {
+            packages = [
+              python
+              pkgs.nixfmt
+              pkgs.ruff
+            ];
+            shellHook = ''
+              export PYTHONPATH="$PWD/src''${PYTHONPATH:+:$PYTHONPATH}"
+            '';
+          };
+        }
+      );
+
+      homeManagerModules =
+        let
+          core = import ./nix/modules/core.nix { inherit self nixpkgs; };
+          openclaw = import ./nix/modules/openclaw.nix { inherit self; };
+          sillytavern = import ./nix/modules/sillytavern.nix { inherit self; };
+        in
+        {
+          inherit core;
+          openclaw = {
+            imports = [
+              core
+              openclaw
+            ];
+          };
+          sillytavern = {
+            imports = [
+              core
+              sillytavern
+            ];
+          };
+          default = {
+            imports = [
+              core
+              openclaw
+              sillytavern
+            ];
+          };
         };
-      };
     };
 }

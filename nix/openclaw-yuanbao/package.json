@@ -1,0 +1,8 @@
+{
+  "name": "nixloom-openclaw-yuanbao",
+  "version": "1.0.0",
+  "private": true,
+  "dependencies": {
+    "openclaw-plugin-yuanbao": "2.18.2"
+  }
+}

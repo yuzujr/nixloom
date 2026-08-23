@@ -1,109 +1,133 @@
 # NixLoom
 
-A reproducible local-AI runtime for NixOS. One flake input wires up a
-llama.cpp LLM (with optional thinking and vision), SDXL image generation, and
-three frontends — Open WebUI, Hermes Agent and SillyTavern — as systemd user
-services under `nixloom.target`.
+NixLoom is a modular local-AI runtime for NixOS. Its Python control plane runs
+one multimodal llama.cpp model and starts stable-diffusion.cpp on demand through
+llama-swap. OpenClaw and SillyTavern are independent Home Manager modules rather
+than built-in assumptions of the core runtime.
 
-The reference profile targets an x86_64 NVIDIA laptop with 8 GiB of VRAM and
-32 GiB of RAM, serving Qwen3.6 35B-A3B.
+## Architecture
 
-## Features
+```text
+OpenClaw ─────── OpenAI chat + OpenAI Images ─┐
+                                              │
+SillyTavern ─── OpenAI chat + sdcpp source ───┼── llama-swap
+                                              │     ├── llama-server
+other clients ─ OpenAI / sdcpp / A1111 APIs ──┘     └── sd-server (on demand)
+```
 
-- One loaded LLM; request-level thinking and vision reuse the same process
-- SDXL on demand — llama-swap unloads the LLM, loads KoboldCpp, then restores it
-- Open WebUI, Hermes Agent and SillyTavern frontends
-- A single `nixloom` command controls the whole stack
-- Config, models, state and caches live in separate XDG directories
-- Fully local: everything runs over loopback on your machine
+- Text, per-request reasoning and vision share one llama.cpp process.
+- Image generation uses stable-diffusion.cpp. Its native/OpenAI interfaces are
+  the primary integrations; its A1111 API remains available for compatibility.
+- Model switching is transparent: an image request unloads the LLM, starts the
+  image runtime, and the next chat request restores the LLM.
+- The runtime is Python. Shell launchers and duplicated test harnesses are not
+  part of the package.
+- No network-overlay policy is embedded in the project. Bind addresses belong
+  to application configuration.
 
-## Requirements
+## Platforms and acceleration
 
-- NixOS with Home Manager
-- An NVIDIA GPU (the reference profile uses 8 GiB of VRAM)
+The flake exports packages for `x86_64-linux` and `aarch64-linux`. Hardware is
+selected in Home Manager rather than encoded into `config.yaml`:
 
-## Installation
+```nix
+services.nixloom = {
+  enable = true;
+  acceleration = "cuda"; # cpu, cuda, vulkan, or rocm
+  cudaCapabilities = [ "12.0" ]; # optional, host-specific build target
+};
+```
 
-Add the flake input and import the Home Manager module:
+`llamaPackage` and `imagePackage` may also be overridden independently. The
+default is CPU, so importing the module does not imply an NVIDIA system.
+Backend packages come from NixLoom's own lock rather than the host package set;
+updating an unrelated NixOS flake input therefore does not trigger a CUDA
+rebuild. Updating NixLoom's lock or overriding a package remains an explicit
+runtime upgrade. `cudaCapabilities = [ ];` keeps the portable nixpkgs defaults;
+an explicit list builds llama.cpp and stable-diffusion.cpp only for those GPU
+architectures. Keep this value in the host configuration rather than the
+project-wide flake so different machines can select different targets.
+
+## Modules
+
+Import the complete option set and enable only the frontends you want:
 
 ```nix
 {
-  inputs.nixloom.url = "github:yuzujr/nixloom";
-  # In the relevant Home Manager module:
   imports = [ inputs.nixloom.homeManagerModules.default ];
-  services.nixloom.enable = true;
+
+  services.nixloom = {
+    enable = true;
+    acceleration = "cuda";
+    openclaw.enable = true;
+    sillytavern.enable = true;
+  };
 }
 ```
 
-The module installs the `nixloom` command and the systemd user services;
-start them on demand with `nixloom start`.
+The modules are independently importable:
 
-## Quick start
-
-```bash
-nixloom config check     # validate your config and generated launch commands
-nixloom models download  # download the pinned models
-nixloom start            # start services and warm the LLM
+```nix
+imports = [ inputs.nixloom.homeManagerModules.sillytavern ];
+services.nixloom = {
+  enable = true;
+  sillytavern.enable = true;
+};
 ```
 
-## Usage
-
-| Command | What it does |
-| --- | --- |
-| `nixloom start` / `stop` / `restart` | Start, stop or restart the services (and warm the LLM on start) |
-| `nixloom status` | Show service and endpoint state |
-| `nixloom logs [SERVICE]` | Read the systemd journal |
-| `nixloom config check` / `init` | Validate config, or create the private template |
-| `nixloom models check` / `download` | Verify or download the pinned models |
-| `nixloom test [smoke\|hermes]` | Live regression tests |
-| `nixloom bench` | Fixed performance/quality benchmark |
-| `nixloom backup [DEST]` | Snapshot config and state into a private archive |
-
-State-changing commands show a plan and ask for confirmation first;
-`--dry-run` previews and `--yes` skips the prompt.
+Available modules are `core`, `openclaw`, `sillytavern`, and `default`.
+Enabling a frontend creates only that frontend's package and systemd unit.
 
 ## Configuration
 
-The first activation copies the packaged `config.yaml` template to
-`~/.config/nixloom/config.yaml`; from then on that user-owned file is your
-config, including API credentials. `nixloom config init` creates it standalone.
+The mutable YAML configuration normally lives at
+`~/.config/nixloom/config.yaml`. Model files, runtime state and caches use
+separate XDG directories:
 
-Key sections:
+- config: `~/.config/nixloom`
+- models: `~/.local/share/nixloom`
+- state: `~/.local/state/nixloom`
+- cache: `~/.cache/nixloom`
 
-- `llm:` — model placement, context, sampling
-- `images:` — SDXL profiles and the active checkpoint
-- `webui:` / `hermes:` / `sillytavern:` — frontend behavior
-- `assets:` — optional download catalog for `nixloom models download`
+The important YAML sections are:
 
-Model paths may be absolute or relative to the model data directory.
-`services.nixloom.{stateDir,dataDir,cacheDir,configFile}` move the writable
-directories to custom locations.
+- `llm`: model, vision projector, context, reasoning and sampling settings
+- `images`: stable-diffusion.cpp precision and image profiles
+- `openclaw`: optional OpenClaw workspace and Yuanbao channel
+- `sillytavern`: optional bind, authentication and managed preset
+- `assets`: pinned downloadable files with exact sizes and SHA-256 hashes
 
-## How it works
+Frontend selection and GPU backend do not live in YAML; those are Nix module
+decisions.
 
-One model ID serves text, thinking and vision through the same loaded process;
-the multimodal projector stays in CPU RAM. Open WebUI exposes a virtual
-`qwen-think` model that enables request-level thinking.
-
-SD is the only separate model process. Image generation goes through
-llama-swap's `/upstream/sd`, which swaps the LLM out and KoboldCpp in for the
-duration of the request.
-
-## Tests
+## Commands
 
 ```bash
-nixloom test smoke          # chat, thinking, vision, optional SD
-nixloom test hermes         # Hermes tool-call regression
-nixloom bench               # TTFT / token speed / quality
-nixloom bench cpu           # CPU thread/CCD affinity matrix
+nixloom config check
+nixloom models check
+nixloom models download
+nixloom start
+nixloom status
+nixloom logs runtime --follow
+nixloom stop
 ```
 
-## Backup
+`nixloom test` is the single useful live regression suite. It verifies normal
+chat, reasoning, vision, OpenAI-compatible image generation and swapping back
+to the LLM. Use `nixloom test --skip-image` for a fast LLM-only run.
 
-`nixloom backup` stops the services, snapshots your config, frontend
-databases, Hermes state and the WebUI secret into a verified private archive
-(default `~/backups/nixloom`). Only config and state are archived; models and
-caches are re-downloadable.
+`nixloom backup` temporarily stops the stack and archives only user-owned
+configuration plus OpenClaw and SillyTavern state. Models and caches are
+excluded.
+
+## Development
+
+```bash
+nix develop
+python -m unittest discover -s tests -v
+ruff check src tests
+nix flake check
+```
 
 ## License
 
