@@ -254,31 +254,34 @@ def _test_openclaw_agent(paths: RuntimePaths) -> None:
             "OPENCLAW_GATEWAY_TOKEN": token_path.read_text(encoding="utf-8").strip(),
         }
     )
-    result = subprocess.run(
-        [
-            "openclaw",
-            "agent",
-            "--agent",
-            "main",
-            "--session-id",
-            "nixloom-regression",
-            "--message",
-            "Use a shell tool to run printf NIXLOOM_AGENT_TOOL_OK, then reply with exactly that stdout.",
-            "--thinking",
-            "off",
-            "--timeout",
-            "900",
-            "--json",
-        ],
-        check=True,
-        capture_output=True,
-        text=True,
-        timeout=1000,
-        env=environment,
-    )
+    try:
+        result = subprocess.run(
+            [
+                "openclaw",
+                "agent",
+                "--agent",
+                "main",
+                "--session-id",
+                "nixloom-regression",
+                "--message",
+                "Use a shell tool to run printf NIXLOOM_AGENT_TOOL_OK, then reply with exactly that stdout.",
+                "--thinking",
+                "off",
+                "--timeout",
+                "900",
+                "--json",
+            ],
+            check=True,
+            capture_output=True,
+            text=True,
+            timeout=1000,
+            env=environment,
+        )
+    except (OSError, subprocess.CalledProcessError, subprocess.TimeoutExpired) as error:
+        raise ConfigError(f"OpenClaw agent regression failed: {error}") from error
     try:
         response = json.loads(result.stdout)
-        details = response["result"]
+        details = response["result"]["meta"]
         visible = details["finalAssistantVisibleText"].strip()
         tools = details["toolSummary"]
     except (KeyError, TypeError, json.JSONDecodeError) as error:
