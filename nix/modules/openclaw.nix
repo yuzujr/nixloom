@@ -20,6 +20,7 @@ let
     "NIXLOOM_CACHE_DIR=${toString cfg.cacheDir}"
     "NIXLOOM_CONFIG_FILE=${toString cfg.configFile}"
     "NIXLOOM_OPENCLAW_PLUGIN_PATH=${module.package}/share/nixloom/openclaw-plugin-yuanbao"
+    "NIXLOOM_OPENCLAW_TAVILY_PLUGIN_PATH=${module.package}/share/nixloom/openclaw-plugin-tavily"
     "PATH=${lib.makeBinPath [ module.package ]}:${hostPath}"
   ];
 in
@@ -29,13 +30,14 @@ in
     package = lib.mkOption {
       type = lib.types.package;
       default = self.packages.${pkgs.stdenv.hostPlatform.system}.openclaw;
-      description = "OpenClaw plus the packaged Yuanbao channel plugin.";
+      description = "OpenClaw plus the packaged Yuanbao and Tavily plugins.";
     };
   };
 
   config = lib.mkIf (cfg.enable && module.enable) {
     home.packages = [ module.package ];
     home.sessionVariables.NIXLOOM_OPENCLAW_PLUGIN_PATH = "${module.package}/share/nixloom/openclaw-plugin-yuanbao";
+    home.sessionVariables.NIXLOOM_OPENCLAW_TAVILY_PLUGIN_PATH = "${module.package}/share/nixloom/openclaw-plugin-tavily";
     systemd.user.targets.nixloom.Unit.Wants = lib.mkAfter [ "nixloom-openclaw.service" ];
     systemd.user.services.nixloom-openclaw = {
       Unit = {

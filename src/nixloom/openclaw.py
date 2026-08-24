@@ -24,6 +24,10 @@ YUANBAO_SETTINGS = (
     "channels.yuanbao.appKey",
     "channels.yuanbao.appSecret",
 )
+TAVILY_SETTINGS = (
+    "plugins.entries.tavily.enabled",
+    "tools.web.search.provider",
+)
 
 
 def _setting(path: str, value: Any) -> dict[str, Any]:
@@ -65,6 +69,8 @@ def managed_settings(config: Config) -> list[dict[str, Any]]:
         _setting("models.mode", "merge"),
         _setting("models.providers.nixloom", provider),
         _setting("agents.defaults.model.primary", f"nixloom/{model_id}"),
+        _setting("tools.loopDetection.enabled", True),
+        _setting("tools.web.fetch.ssrfPolicy.allowRfc2544BenchmarkRange", True),
     ]
     workspace = config.string("openclaw.workspace", "")
     if workspace:
@@ -166,7 +172,7 @@ def _ensure_token(path: Path) -> str:
     return path.read_text(encoding="utf-8").strip()
 
 
-def _sync_yuanbao_plugin_path(plugin_path: Path | None) -> None:
+def _sync_plugin_path(plugin_path: Path | None, suffix: str) -> None:
     current = subprocess.run(
         ["openclaw", "config", "get", "plugins.load.paths", "--json"],
         check=False,
@@ -179,7 +185,6 @@ def _sync_yuanbao_plugin_path(plugin_path: Path | None) -> None:
         paths = []
     if not isinstance(paths, list):
         paths = []
-    suffix = "/share/nixloom/openclaw-plugin-yuanbao"
     paths = [
         item for item in paths if isinstance(item, str) and not item.endswith(suffix)
     ]
@@ -204,7 +209,7 @@ def _configure_yuanbao(config: Config) -> None:
     os.environ["YUANBAO_APP_KEY"] = app_key
     os.environ["YUANBAO_APP_SECRET"] = app_secret
 
-    _sync_yuanbao_plugin_path(plugin_path)
+    _sync_plugin_path(plugin_path, "/share/nixloom/openclaw-plugin-yuanbao")
     _set_batch(
         [
             _setting("plugins.entries.openclaw-plugin-yuanbao.enabled", True),
@@ -216,8 +221,29 @@ def _configure_yuanbao(config: Config) -> None:
 
 
 def _disable_yuanbao() -> None:
-    _sync_yuanbao_plugin_path(None)
+    _sync_plugin_path(None, "/share/nixloom/openclaw-plugin-yuanbao")
     _unset_paths(YUANBAO_SETTINGS)
+
+
+def _configure_tavily(config: Config) -> None:
+    plugin_path_value = os.environ.get("NIXLOOM_OPENCLAW_TAVILY_PLUGIN_PATH", "")
+    plugin_path = Path(plugin_path_value) if plugin_path_value else None
+    api_key = config.string("credentials.tavily_api_key", "")
+    if not api_key:
+        _sync_plugin_path(None, "/share/nixloom/openclaw-plugin-tavily")
+        _unset_paths(TAVILY_SETTINGS)
+        return
+    if not plugin_path or not (plugin_path / "openclaw.plugin.json").is_file():
+        raise ConfigError(
+            f"the packaged Tavily plugin is unavailable: {plugin_path_value or '<unset>'}"
+        )
+    _sync_plugin_path(plugin_path, "/share/nixloom/openclaw-plugin-tavily")
+    _set_batch(
+        [
+            _setting("plugins.entries.tavily.enabled", True),
+            _setting("tools.web.search.provider", "tavily"),
+        ]
+    )
 
 
 def reconcile_settings(config: Config) -> None:
@@ -228,6 +254,7 @@ def reconcile_settings(config: Config) -> None:
         _configure_yuanbao(config)
     else:
         _disable_yuanbao()
+    _configure_tavily(config)
 
 
 def run(config: Config, paths: RuntimePaths, *, dry_run: bool = False) -> None:

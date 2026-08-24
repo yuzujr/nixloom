@@ -45,6 +45,20 @@ let
     '';
   };
 
+  tavily = pkgs.buildNpmPackage {
+    pname = "openclaw-plugin-tavily";
+    version = "2026.6.33";
+    src = ./openclaw-tavily;
+    npmDepsHash = "sha256-0pHKaa0OtFyAkOn6FaBltVfdk5gSdeIx774lo4QLI2U=";
+    dontNpmBuild = true;
+    installPhase = ''
+      runHook preInstall
+      mkdir -p "$out"
+      cp -r node_modules/@openclaw/tavily-plugin/. "$out/"
+      runHook postInstall
+    '';
+  };
+
   # nixpkgs 2026.6.33 still carries the previous fixed-output hash.
   openclaw =
     if lib.getVersion pkgs.openclaw == "2026.6.33" then
@@ -59,7 +73,10 @@ let
     paths = [ openclaw ];
     postBuild = ''
       mkdir -p "$out/share/nixloom"
-      ln -s ${yuanbao} "$out/share/nixloom/openclaw-plugin-yuanbao"
+      cp -r --no-preserve=mode ${yuanbao} "$out/share/nixloom/openclaw-plugin-yuanbao"
+      ln -s ${openclaw}/lib/openclaw \
+        "$out/share/nixloom/openclaw-plugin-yuanbao/node_modules/openclaw"
+      ln -s ${tavily} "$out/share/nixloom/openclaw-plugin-tavily"
     '';
   };
 
