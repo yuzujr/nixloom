@@ -5,7 +5,6 @@ from __future__ import annotations
 import json
 import os
 import secrets
-import subprocess
 import sys
 import tempfile
 from pathlib import Path
@@ -61,7 +60,8 @@ def managed_settings(config: Config) -> list[dict[str, Any]]:
     settings = [
         _setting("gateway.mode", "local"),
         _setting("gateway.port", config.integer("ports.openclaw", minimum=1)),
-        _setting("gateway.bind", "lan"),
+        _setting("gateway.bind", "loopback"),
+        _setting("gateway.tailscale.mode", "serve"),
         _setting("gateway.controlUi.enabled", True),
         _setting("gateway.controlUi.allowedOrigins", ["*"]),
         _setting("gateway.controlUi.dangerouslyDisableDeviceAuth", True),
@@ -113,18 +113,86 @@ def managed_settings(config: Config) -> list[dict[str, Any]]:
 
 
 def _set_batch(settings: list[dict[str, Any]]) -> None:
-    subprocess.run(
-        [
-            "openclaw",
-            "config",
-            "set",
-            "--batch-json",
-            json.dumps(settings, ensure_ascii=False, separators=(",", ":")),
-            "--strict-json",
-        ],
-        check=True,
-        stdout=subprocess.DEVNULL,
-    )
+    config = _read_config()
+    for setting in settings:
+        _set_config_value(config, setting["path"], setting["value"])
+    _write_config(config)
+
+
+def _config_path() -> Path:
+    value = os.environ.get("OPENCLAW_CONFIG_PATH", "")
+    if not value:
+        raise ConfigError("OPENCLAW_CONFIG_PATH is not set")
+    return Path(value)
+
+
+def _read_config() -> dict[str, Any]:
+    path = _config_path()
+    try:
+        value = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as error:
+        raise ConfigError(f"cannot read OpenClaw config {path}: {error}") from error
+    if not isinstance(value, dict):
+        raise ConfigError(f"OpenClaw config must contain a JSON object: {path}")
+    return value
+
+
+def _write_config(value: dict[str, Any]) -> None:
+    path = _config_path()
+    descriptor, temporary_name = tempfile.mkstemp(prefix=path.name + ".", dir=path.parent)
+    try:
+        os.fchmod(descriptor, 0o600)
+        with os.fdopen(descriptor, "w", encoding="utf-8") as output:
+            json.dump(value, output, ensure_ascii=False, indent=2)
+            output.write("\n")
+            output.flush()
+            os.fsync(output.fileno())
+        os.replace(temporary_name, path)
+    finally:
+        Path(temporary_name).unlink(missing_ok=True)
+
+
+def _set_config_value(config: dict[str, Any], path: str, value: Any) -> None:
+    parts = path.split(".")
+    target = config
+    for part in parts[:-1]:
+        child = target.get(part)
+        if not isinstance(child, dict):
+            child = {}
+            target[part] = child
+        target = child
+    target[parts[-1]] = value
+
+
+def _get_config_value(config: dict[str, Any], path: str) -> Any:
+    value: Any = config
+    for part in path.split("."):
+        if not isinstance(value, dict) or part not in value:
+            return None
+        value = value[part]
+    return value
+
+
+def _unset_config_value(config: dict[str, Any], path: str) -> bool:
+    parts = path.split(".")
+    parents: list[tuple[dict[str, Any], str]] = []
+    target = config
+    for part in parts[:-1]:
+        child = target.get(part)
+        if not isinstance(child, dict):
+            return False
+        parents.append((target, part))
+        target = child
+    if parts[-1] not in target:
+        return False
+    del target[parts[-1]]
+    for parent, key in reversed(parents):
+        child = parent.get(key)
+        if isinstance(child, dict) and not child:
+            del parent[key]
+        else:
+            break
+    return True
 
 
 def unmanaged_settings(config: Config) -> list[str]:
@@ -138,19 +206,12 @@ def unmanaged_settings(config: Config) -> list[str]:
 
 
 def _unset_paths(paths: list[str] | tuple[str, ...]) -> None:
+    config = _read_config()
+    changed = False
     for path in paths:
-        current = subprocess.run(
-            ["openclaw", "config", "get", path, "--json"],
-            check=False,
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
-        )
-        if current.returncode == 0:
-            subprocess.run(
-                ["openclaw", "config", "unset", path],
-                check=True,
-                stdout=subprocess.DEVNULL,
-            )
+        changed = _unset_config_value(config, path) or changed
+    if changed:
+        _write_config(config)
 
 
 def _ensure_token(path: Path) -> str:
@@ -173,16 +234,7 @@ def _ensure_token(path: Path) -> str:
 
 
 def _sync_plugin_path(plugin_path: Path | None, suffix: str) -> None:
-    current = subprocess.run(
-        ["openclaw", "config", "get", "plugins.load.paths", "--json"],
-        check=False,
-        capture_output=True,
-        text=True,
-    )
-    try:
-        paths = json.loads(current.stdout) if current.returncode == 0 else []
-    except json.JSONDecodeError:
-        paths = []
+    paths = _get_config_value(_read_config(), "plugins.load.paths")
     if not isinstance(paths, list):
         paths = []
     paths = [
@@ -289,6 +341,10 @@ def run(config: Config, paths: RuntimePaths, *, dry_run: bool = False) -> None:
     if tavily:
         os.environ["TAVILY_API_KEY"] = tavily
     reconcile_settings(config)
+    # Packaged plugins live in the immutable Nix store and may contain
+    # hard-linked files. OpenClaw only permits that layout in its Nix mode;
+    # without this flag plugin discovery silently skips Yuanbao and Tavily.
+    os.environ["OPENCLAW_NIX_MODE"] = "1"
     port = config.integer("ports.openclaw", minimum=1)
-    print(f"Starting OpenClaw on http://0.0.0.0:{port}", file=sys.stderr)
+    print(f"Starting OpenClaw on http://127.0.0.1:{port}", file=sys.stderr)
     os.execvp("openclaw", ["openclaw", "gateway"])

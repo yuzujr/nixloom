@@ -1,3 +1,6 @@
+import json
+import os
+import tempfile
 import unittest
 from pathlib import Path
 from unittest.mock import patch
@@ -7,8 +10,11 @@ from nixloom.openclaw import (
     IMAGE_SETTINGS,
     TAVILY_SETTINGS,
     YUANBAO_SETTINGS,
+    _set_batch,
+    _unset_paths,
     managed_settings,
     reconcile_settings,
+    run,
 )
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -27,6 +33,8 @@ class OpenClawTests(unittest.TestCase):
         self.assertTrue(model["reasoning"])
         self.assertEqual(model["input"], ["text", "image"])
         self.assertIn("agents.defaults.imageGenerationModel", settings)
+        self.assertEqual(settings["gateway.bind"], "loopback")
+        self.assertEqual(settings["gateway.tailscale.mode"], "serve")
         self.assertTrue(settings["tools.loopDetection.enabled"])
         self.assertTrue(
             settings["tools.web.fetch.ssrfPolicy.allowRfc2544BenchmarkRange"]
@@ -86,6 +94,47 @@ class OpenClawTests(unittest.TestCase):
         disable_yuanbao.assert_called_once_with()
         configure_tavily.assert_called_once_with(self.config)
         self.assertEqual(len(YUANBAO_SETTINGS), 4)
+
+    def test_config_merge_preserves_unmanaged_values(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            config_path = Path(temporary) / "openclaw.json"
+            config_path.write_text(
+                '{"unmanaged":{"keep":true},"gateway":{"bind":"lan"}}\n',
+                encoding="utf-8",
+            )
+            with patch.dict(
+                os.environ, {"OPENCLAW_CONFIG_PATH": str(config_path)}, clear=True
+            ):
+                _set_batch([{"path": "gateway.bind", "value": "loopback"}])
+                _unset_paths(["gateway.missing"])
+            result = json.loads(config_path.read_text(encoding="utf-8"))
+            self.assertEqual(result["gateway"]["bind"], "loopback")
+            self.assertTrue(result["unmanaged"]["keep"])
+
+    def test_run_enables_openclaw_nix_mode_before_gateway_exec(self) -> None:
+        def stop_at_exec(*_args: object) -> None:
+            self.assertEqual(os.environ["OPENCLAW_NIX_MODE"], "1")
+            raise RuntimeError("exec")
+
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            paths = RuntimePaths(
+                state=root / "state",
+                data=root / "data",
+                cache=root / "cache",
+                config_dir=root / "config",
+                config_file=ROOT / "config.yaml",
+                share=None,
+            )
+            with (
+                patch.dict(os.environ, {}, clear=True),
+                patch("nixloom.openclaw.reconcile_settings") as reconcile,
+                patch("nixloom.openclaw._ensure_token", return_value="token"),
+                patch("nixloom.openclaw.os.execvp", side_effect=stop_at_exec),
+                self.assertRaisesRegex(RuntimeError, "exec"),
+            ):
+                run(self.config, paths)
+            reconcile.assert_called_once_with(self.config)
 
 
 if __name__ == "__main__":
