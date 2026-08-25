@@ -10,6 +10,7 @@ from nixloom.openclaw import (
     IMAGE_SETTINGS,
     TAVILY_SETTINGS,
     YUANBAO_SETTINGS,
+    YUANBAO_SECRET_SETTINGS,
     _set_batch,
     _unset_paths,
     managed_settings,
@@ -93,7 +94,8 @@ class OpenClawTests(unittest.TestCase):
         unset_paths.assert_called_once_with(expected_unsets)
         disable_yuanbao.assert_called_once_with()
         configure_tavily.assert_called_once_with(self.config)
-        self.assertEqual(len(YUANBAO_SETTINGS), 4)
+        self.assertEqual(len(YUANBAO_SETTINGS), 2)
+        self.assertEqual(len(YUANBAO_SECRET_SETTINGS), 2)
 
     def test_config_merge_preserves_unmanaged_values(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:

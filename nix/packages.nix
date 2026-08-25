@@ -59,7 +59,8 @@ let
     '';
   };
 
-  # nixpkgs 2026.6.33 still carries the previous fixed-output hash.
+  # Keep the core and bundled Tavily plugin on the nixpkgs release line.
+  # nixpkgs 2026.6.33 carries the fixed-output hash used by this input.
   openclaw =
     if lib.getVersion pkgs.openclaw == "2026.6.33" then
       pkgs.openclaw.overrideAttrs (_: {

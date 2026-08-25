@@ -15,14 +15,29 @@ let
     "/run/current-system/sw/bin"
   ];
   environment = [
+    "OPENCLAW_STATE_DIR=${stateDir}/.openclaw"
+    "OPENCLAW_CONFIG_PATH=${stateDir}/.openclaw/openclaw.json"
+    "OPENCLAW_NIX_MODE=1"
+    "NIXLOOM_OPENCLAW_PLUGIN_PATH=${module.package}/share/nixloom/openclaw-plugin-yuanbao"
+    "NIXLOOM_OPENCLAW_TAVILY_PLUGIN_PATH=${module.package}/share/nixloom/openclaw-plugin-tavily"
+    "PATH=${lib.makeBinPath [ module.package ]}:${hostPath}"
+  ];
+  prepareEnvironment = lib.concatMapStringsSep " " lib.escapeShellArg [
     "NIXLOOM_STATE_DIR=${stateDir}"
     "NIXLOOM_DATA_DIR=${toString cfg.dataDir}"
     "NIXLOOM_CACHE_DIR=${toString cfg.cacheDir}"
     "NIXLOOM_CONFIG_FILE=${toString cfg.configFile}"
     "NIXLOOM_OPENCLAW_PLUGIN_PATH=${module.package}/share/nixloom/openclaw-plugin-yuanbao"
     "NIXLOOM_OPENCLAW_TAVILY_PLUGIN_PATH=${module.package}/share/nixloom/openclaw-plugin-tavily"
-    "PATH=${lib.makeBinPath [ module.package ]}:${hostPath}"
   ];
+  launcher = pkgs.writeShellScript "nixloom-openclaw" ''
+    set -eu
+    export OPENCLAW_GATEWAY_TOKEN="$(<"$CREDENTIALS_DIRECTORY/gateway-token")"
+    export TAVILY_API_KEY="$(<"$CREDENTIALS_DIRECTORY/tavily-api-key")"
+    export YUANBAO_APP_KEY="$(<"$CREDENTIALS_DIRECTORY/yuanbao-app-key")"
+    export YUANBAO_APP_SECRET="$(<"$CREDENTIALS_DIRECTORY/yuanbao-app-secret")"
+    exec ${module.package}/bin/openclaw gateway
+  '';
 in
 {
   options.services.nixloom.openclaw = {
@@ -38,6 +53,9 @@ in
     home.packages = [ module.package ];
     home.sessionVariables.NIXLOOM_OPENCLAW_PLUGIN_PATH = "${module.package}/share/nixloom/openclaw-plugin-yuanbao";
     home.sessionVariables.NIXLOOM_OPENCLAW_TAVILY_PLUGIN_PATH = "${module.package}/share/nixloom/openclaw-plugin-tavily";
+    home.activation.nixloomOpenClawConfig = lib.hm.dag.entryAfter [ "nixloomDirectories" ] ''
+      run env ${prepareEnvironment} ${cfg.package}/bin/nixloom __service openclaw --prepare-only
+    '';
     systemd.user.targets.nixloom.Unit.Wants = lib.mkAfter [ "nixloom-openclaw.service" ];
     systemd.user.services.nixloom-openclaw = {
       Unit = {
@@ -48,9 +66,15 @@ in
         X-SwitchMethod = "keep-old";
       };
       Service = {
-        ExecStart = "${cfg.package}/bin/nixloom __service openclaw";
+        ExecStart = launcher;
         WorkingDirectory = stateDir;
         Environment = environment;
+        LoadCredential = [
+          "gateway-token:${stateDir}/.run/openclaw-gateway-token"
+          "tavily-api-key:${stateDir}/.run/openclaw-tavily-api-key"
+          "yuanbao-app-key:${stateDir}/.run/openclaw-yuanbao-app-key"
+          "yuanbao-app-secret:${stateDir}/.run/openclaw-yuanbao-app-secret"
+        ];
         Restart = "on-failure";
         RestartSec = "5s";
         TimeoutStartSec = "infinity";

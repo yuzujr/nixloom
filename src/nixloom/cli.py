@@ -417,7 +417,10 @@ def command_service(args: argparse.Namespace) -> None:
         runtime.check_assets(command, config, paths)
         runtime.execute(command)
     elif args.service_name == "openclaw":
-        openclaw.run(config, paths, dry_run=args.dry_run)
+        if args.prepare_only:
+            openclaw.prepare(config, paths)
+        else:
+            openclaw.run(config, paths, dry_run=args.dry_run)
     elif args.service_name == "sillytavern":
         sillytavern.run(config, paths, dry_run=args.dry_run)
 
@@ -621,6 +624,7 @@ def service_parser() -> argparse.ArgumentParser:
     service.add_argument("--host", default="127.0.0.1", metavar="ADDRESS")
     service.add_argument("--port", metavar="PORT")
     service.add_argument("--dry-run", action="store_true")
+    service.add_argument("--prepare-only", action="store_true")
     service.set_defaults(handler=command_service, config=None)
     return service
 

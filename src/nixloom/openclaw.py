@@ -20,6 +20,8 @@ IMAGE_SETTINGS = (
 YUANBAO_SETTINGS = (
     "plugins.entries.openclaw-plugin-yuanbao.enabled",
     "channels.yuanbao.enabled",
+)
+YUANBAO_SECRET_SETTINGS = (
     "channels.yuanbao.appKey",
     "channels.yuanbao.appSecret",
 )
@@ -233,6 +235,21 @@ def _ensure_token(path: Path) -> str:
     return path.read_text(encoding="utf-8").strip()
 
 
+def _write_secret(path: Path, value: str) -> None:
+    """Atomically materialize a runtime credential outside the Nix store."""
+    path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
+    descriptor, temporary_name = tempfile.mkstemp(prefix=path.name + ".", dir=path.parent)
+    try:
+        os.fchmod(descriptor, 0o600)
+        with os.fdopen(descriptor, "w", encoding="utf-8") as output:
+            output.write(value)
+            output.flush()
+            os.fsync(output.fileno())
+        os.replace(temporary_name, path)
+    finally:
+        Path(temporary_name).unlink(missing_ok=True)
+
+
 def _sync_plugin_path(plugin_path: Path | None, suffix: str) -> None:
     paths = _get_config_value(_read_config(), "plugins.load.paths")
     if not isinstance(paths, list):
@@ -256,25 +273,19 @@ def _configure_yuanbao(config: Config) -> None:
         raise ConfigError(
             f"the packaged Yuanbao plugin is unavailable: {plugin_path_value or '<unset>'}"
         )
-    app_key = config.string("credentials.yuanbao_app_key")
-    app_secret = config.string("credentials.yuanbao_app_secret")
-    os.environ["YUANBAO_APP_KEY"] = app_key
-    os.environ["YUANBAO_APP_SECRET"] = app_secret
-
     _sync_plugin_path(plugin_path, "/share/nixloom/openclaw-plugin-yuanbao")
     _set_batch(
         [
             _setting("plugins.entries.openclaw-plugin-yuanbao.enabled", True),
             _setting("channels.yuanbao.enabled", True),
-            _setting("channels.yuanbao.appKey", app_key),
-            _setting("channels.yuanbao.appSecret", app_secret),
         ]
     )
+    _unset_paths(YUANBAO_SECRET_SETTINGS)
 
 
 def _disable_yuanbao() -> None:
     _sync_plugin_path(None, "/share/nixloom/openclaw-plugin-yuanbao")
-    _unset_paths(YUANBAO_SETTINGS)
+    _unset_paths((*YUANBAO_SETTINGS, *YUANBAO_SECRET_SETTINGS))
 
 
 def _configure_tavily(config: Config) -> None:
@@ -309,6 +320,35 @@ def reconcile_settings(config: Config) -> None:
     _configure_tavily(config)
 
 
+def prepare(config: Config, paths: RuntimePaths) -> None:
+    """Render OpenClaw config and credentials during Home Manager activation."""
+    state = paths.state / ".openclaw"
+    config_path = state / "openclaw.json"
+    os.umask(0o077)
+    state.mkdir(parents=True, exist_ok=True, mode=0o700)
+    config_path.touch(mode=0o600, exist_ok=True)
+    if config_path.stat().st_size == 0:
+        config_path.write_text("{}\n", encoding="utf-8")
+        config_path.chmod(0o600)
+    os.environ["OPENCLAW_STATE_DIR"] = str(state)
+    os.environ["OPENCLAW_CONFIG_PATH"] = str(config_path)
+    runtime_dir = paths.state / ".run"
+    _ensure_token(runtime_dir / "openclaw-gateway-token")
+    _write_secret(
+        runtime_dir / "openclaw-tavily-api-key",
+        config.string("credentials.tavily_api_key", ""),
+    )
+    _write_secret(
+        runtime_dir / "openclaw-yuanbao-app-key",
+        config.string("credentials.yuanbao_app_key", ""),
+    )
+    _write_secret(
+        runtime_dir / "openclaw-yuanbao-app-secret",
+        config.string("credentials.yuanbao_app_secret", ""),
+    )
+    reconcile_settings(config)
+
+
 def run(config: Config, paths: RuntimePaths, *, dry_run: bool = False) -> None:
     state = paths.state / ".openclaw"
     config_path = state / "openclaw.json"
@@ -326,21 +366,20 @@ def run(config: Config, paths: RuntimePaths, *, dry_run: bool = False) -> None:
         print("openclaw gateway")
         return
 
-    os.umask(0o077)
-    state.mkdir(parents=True, exist_ok=True, mode=0o700)
-    config_path.touch(mode=0o600, exist_ok=True)
-    if config_path.stat().st_size == 0:
-        config_path.write_text("{}\n", encoding="utf-8")
-        config_path.chmod(0o600)
-    os.environ["OPENCLAW_STATE_DIR"] = str(state)
-    os.environ["OPENCLAW_CONFIG_PATH"] = str(config_path)
-    os.environ["OPENCLAW_GATEWAY_TOKEN"] = _ensure_token(
-        paths.state / ".run/openclaw-gateway-token"
+    prepare(config, paths)
+    runtime_dir = paths.state / ".run"
+    os.environ["OPENCLAW_GATEWAY_TOKEN"] = (runtime_dir / "openclaw-gateway-token").read_text(
+        encoding="utf-8"
+    ).strip()
+    os.environ["TAVILY_API_KEY"] = (runtime_dir / "openclaw-tavily-api-key").read_text(
+        encoding="utf-8"
     )
-    tavily = config.string("credentials.tavily_api_key", "")
-    if tavily:
-        os.environ["TAVILY_API_KEY"] = tavily
-    reconcile_settings(config)
+    os.environ["YUANBAO_APP_KEY"] = (runtime_dir / "openclaw-yuanbao-app-key").read_text(
+        encoding="utf-8"
+    )
+    os.environ["YUANBAO_APP_SECRET"] = (
+        runtime_dir / "openclaw-yuanbao-app-secret"
+    ).read_text(encoding="utf-8")
     # Packaged plugins live in the immutable Nix store and may contain
     # hard-linked files. OpenClaw only permits that layout in its Nix mode;
     # without this flag plugin discovery silently skips Yuanbao and Tavily.
