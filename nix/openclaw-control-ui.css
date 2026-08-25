@@ -126,12 +126,13 @@
     display: none;
   }
 
-  /* Assistant content reads as plain conversation, not dashboard cards. */
+  /* Assistant replies use the same compact bubble style as user messages
+   * (left-aligned), so the thread reads like a normal chat. */
   .chat-group:not(.user) .chat-bubble {
-    padding: 4px 2px 2px;
-    border: none;
-    background: transparent;
-    border-radius: 10px;
+    padding: 8px 12px;
+    border: 1px solid color-mix(in srgb, var(--border) 60%, transparent);
+    background: var(--bg-muted);
+    border-radius: 4px 16px 16px 16px;
   }
 
   .chat-group.user .chat-bubble {
