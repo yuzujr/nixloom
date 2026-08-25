@@ -41,6 +41,19 @@ class OpenClawTests(unittest.TestCase):
             settings["tools.web.fetch.ssrfPolicy.allowRfc2544BenchmarkRange"]
         )
 
+    def test_control_ui_root_is_taken_from_nix_package_environment(self) -> None:
+        with patch.dict(
+            os.environ,
+            {"NIXLOOM_OPENCLAW_CONTROL_UI_ROOT": "/home/yuzujr/.local/state/nixloom/.openclaw/control-ui"},
+        ):
+            settings = {
+                item["path"]: item["value"] for item in managed_settings(self.config)
+            }
+        self.assertEqual(
+            settings["gateway.controlUi.root"],
+            "/home/yuzujr/.local/state/nixloom/.openclaw/control-ui",
+        )
+
     def test_tavily_provider_is_configured_when_key_exists(self) -> None:
         self.config.value["credentials"]["tavily_api_key"] = "tvly-test"
         with (
@@ -83,7 +96,6 @@ class OpenClawTests(unittest.TestCase):
         self.config.value["openclaw"]["workspace"] = ""
         self.config.value["openclaw"]["yuanbao"] = False
         expected_unsets = [
-            "gateway.controlUi.root",
             "agents.defaults.workspace",
             *IMAGE_SETTINGS,
         ]

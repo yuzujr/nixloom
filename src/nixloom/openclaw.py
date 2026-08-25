@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import os
 import secrets
+import shutil
 import sys
 import tempfile
 from pathlib import Path
@@ -79,6 +80,9 @@ def managed_settings(config: Config) -> list[dict[str, Any]]:
         _setting("tools.loopDetection.enabled", True),
         _setting("tools.web.fetch.ssrfPolicy.allowRfc2544BenchmarkRange", True),
     ]
+    control_ui_root = os.environ.get("NIXLOOM_OPENCLAW_CONTROL_UI_ROOT", "").strip()
+    if control_ui_root:
+        settings.append(_setting("gateway.controlUi.root", control_ui_root))
     workspace = config.string("openclaw.workspace", "")
     if workspace:
         if not Path(workspace).is_absolute():
@@ -204,7 +208,7 @@ def _unset_config_value(config: dict[str, Any], path: str) -> bool:
 
 def unmanaged_settings(config: Config) -> list[str]:
     """Return formerly managed paths that must converge to absence."""
-    paths: list[str] = ["gateway.controlUi.root"]
+    paths: list[str] = []
     if not config.string("openclaw.workspace", ""):
         paths.append("agents.defaults.workspace")
     if not config.boolean("images.enabled"):
@@ -253,6 +257,26 @@ def _write_secret(path: Path, value: str) -> None:
         os.replace(temporary_name, path)
     finally:
         Path(temporary_name).unlink(missing_ok=True)
+
+
+def _sync_control_ui(src: Path, root: Path) -> None:
+    """Mirror the packaged Control UI into a mutable state-dir copy.
+
+    The gateway serves a custom ``controlUi.root`` with ``rejectHardlinks``
+    enabled, and Nix store files are hard-linked (``nlink > 1``), which that
+    check rejects.  A plain copy (``cp`` semantics) yields ``nlink == 1`` files
+    that pass the check, and lets the CSS be edited in place for fast phone
+    iteration without rebuilding the openclaw package.
+    """
+    root.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
+    shutil.rmtree(root, ignore_errors=True)
+    shutil.copytree(src, root)
+    # Store files come out read-only (0444); the whole point of the copy is to
+    # be editable, so make everything writable for the owning user.
+    for dirpath, _dirnames, filenames in os.walk(root):
+        os.chmod(dirpath, 0o755)
+        for name in filenames:
+            os.chmod(os.path.join(dirpath, name), 0o644)
 
 
 def _sync_plugin_path(plugin_path: Path | None, suffix: str) -> None:
@@ -351,6 +375,10 @@ def prepare(config: Config, paths: RuntimePaths) -> None:
         runtime_dir / "openclaw-yuanbao-app-secret",
         config.string("credentials.yuanbao_app_secret", ""),
     )
+    control_ui_src = os.environ.get("NIXLOOM_OPENCLAW_CONTROL_UI_SRC", "").strip()
+    control_ui_root = os.environ.get("NIXLOOM_OPENCLAW_CONTROL_UI_ROOT", "").strip()
+    if control_ui_src and control_ui_root:
+        _sync_control_ui(Path(control_ui_src), Path(control_ui_root))
     reconcile_settings(config)
 
 

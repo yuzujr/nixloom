@@ -47,14 +47,36 @@
   }
 
   .topnav-shell .dashboard-header__breadcrumb-link,
-  .topnav-shell .dashboard-header__breadcrumb-sep:first-of-type,
+  .topnav-shell .dashboard-header__breadcrumb-sep,
   .topnav-shell .dashboard-header__breadcrumb-current {
     display: none;
   }
 
+  /* The breadcrumb reduces to a single clean agent title (no dangling "›"). */
   .topnav-shell .dashboard-header__breadcrumb {
-    font-size: 14px;
-    font-weight: 600;
+    min-width: 0;
+    font-size: 15px;
+    font-weight: 650;
+    letter-spacing: .01em;
+  }
+
+  .topnav-shell .dashboard-header__breadcrumb-context {
+    display: block;
+    max-width: 55vw;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  /* Keep the theme mode toggle compact so the topbar stays one clean row. */
+  .topbar-theme-mode {
+    gap: 2px;
+  }
+
+  .topbar-theme-mode__btn {
+    width: 32px;
+    min-width: 32px;
+    height: 32px;
   }
 
   /* Metadata remains available but stops competing with the message body. */
@@ -121,7 +143,7 @@
   /* Keep model/reasoning available, but make the settings row compact rather
    * than allowing it to consume a second oversized toolbar. */
   .agent-chat__composer-controls {
-    gap: 4px;
+    gap: 6px;
   }
 
   .chat-composer-model-control {
@@ -134,6 +156,12 @@
     min-height: 32px;
     height: 32px;
     font-size: 11px;
+  }
+
+  .chat-composer-model-control .chat-controls__inline-select-trigger {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
   }
 
   .chat-settings-chip {
@@ -183,9 +211,30 @@
     padding: 10px 12px 6px;
   }
 
+  /* Single clean input row: [attach] [model] [settings] [send].  On narrow
+   * screens the composer otherwise wraps its toolbar into several stacked
+   * micro-rows; pin it to one row and drop the secondary chrome. */
   .agent-chat__toolbar {
-    gap: 4px;
-    padding: 4px 6px;
+    flex-wrap: nowrap;
+    align-items: center;
+    gap: 6px;
+    padding: 6px 8px 8px;
+  }
+
+  .agent-chat__toolbar-left,
+  .agent-chat__toolbar-right {
+    flex: 0 0 auto;
+  }
+
+  /* Quota pill (informational), token estimate, attach/talk text labels,
+   * voice-call buttons, and the export / new-session ghost actions all remain
+   * available on desktop but disappear from the phone row. */
+  .agent-chat__composer-controls .chat-controls__quota,
+  .agent-chat__toolbar-left .agent-chat__control-label,
+  .agent-chat__toolbar-left .agent-chat__token-count,
+  .agent-chat__toolbar-left .agent-chat__input-btn:not(:first-child),
+  .agent-chat__toolbar-right .btn--ghost {
+    display: none;
   }
 
   .agent-chat__input-btn,

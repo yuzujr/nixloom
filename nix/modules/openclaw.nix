@@ -22,6 +22,10 @@ let
     "NIXLOOM_OPENCLAW_TAVILY_PLUGIN_PATH=${module.package}/share/nixloom/openclaw-plugin-tavily"
     "PATH=${lib.makeBinPath [ module.package ]}:${hostPath}"
   ];
+  # The Control UI is served from a mutable state-dir copy (see
+  # nixloom.openclaw._sync_control_ui).  prepare() mirrors the packaged
+  # dist/control-ui there at activation so the CSS can be edited in place and
+  # picked up by the phone without rebuilding the openclaw package.
   prepareEnvironment = lib.concatMapStringsSep " " lib.escapeShellArg [
     "NIXLOOM_STATE_DIR=${stateDir}"
     "NIXLOOM_DATA_DIR=${toString cfg.dataDir}"
@@ -29,6 +33,8 @@ let
     "NIXLOOM_CONFIG_FILE=${toString cfg.configFile}"
     "NIXLOOM_OPENCLAW_PLUGIN_PATH=${module.package}/share/nixloom/openclaw-plugin-yuanbao"
     "NIXLOOM_OPENCLAW_TAVILY_PLUGIN_PATH=${module.package}/share/nixloom/openclaw-plugin-tavily"
+    "NIXLOOM_OPENCLAW_CONTROL_UI_ROOT=${stateDir}/.openclaw/control-ui"
+    "NIXLOOM_OPENCLAW_CONTROL_UI_SRC=${module.package}/lib/openclaw/dist/control-ui"
   ];
   launcher = pkgs.writeShellScript "nixloom-openclaw" ''
     set -eu
