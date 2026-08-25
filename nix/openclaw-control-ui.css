@@ -3,6 +3,11 @@
  * This is intentionally injected after OpenClaw's own stylesheet.  Keep the
  * selectors limited to the chat surface so upgrades do not require carrying
  * a fork of the whole Vite/Lit application.
+ *
+ * Mobile (<=768px) targets a dense chat-app feel: a one-line header, messages
+ * that use the full width, low-key metadata, collapsed tool cards, and a
+ * two-row composer.  Density comes from removing chrome, padding, and
+ * always-on secondary controls — not from shrinking fonts.
  */
 
 /* Keep the transcript readable on wide screens without changing the shell. */
@@ -11,26 +16,65 @@
   margin-inline: auto;
 }
 
-/* Phone/PWA chat should read as a conversation, not as a dashboard page.  The
- * existing search button remains functional (it opens the command palette),
- * but becomes a compact overflow affordance instead of a 200px-wide pill. */
+/* ============================= Mobile ============================= */
 @media (width <= 768px) {
+  /* ---------- 1. Header: one compact row  ☰  agent › view  ⋯ ---------- */
   .topbar {
-    min-height: 52px;
-    padding-inline: 8px;
+    min-height: 48px;
+    padding-inline: 6px;
   }
 
   .topnav-shell {
-    min-height: 52px;
-    gap: 8px;
+    min-height: 48px;
+    gap: 6px;
   }
 
+  /* Hamburger becomes a plain icon (the base draws a bordered pill). */
+  .sidebar-menu-trigger.topbar-nav-toggle {
+    width: 32px;
+    min-width: 32px;
+    height: 32px;
+    padding: 0;
+    border: none;
+    background: transparent;
+    border-radius: 8px;
+  }
+
+  /* Breadcrumb collapses to "agent › current view", one line. */
+  .topnav-shell .dashboard-header__breadcrumb-link {
+    display: none;
+  }
+
+  .topnav-shell .dashboard-header__breadcrumb {
+    min-width: 0;
+    gap: 4px;
+    font-size: 13px;
+    font-weight: 600;
+  }
+
+  .topnav-shell .dashboard-header__breadcrumb-context,
+  .topnav-shell .dashboard-header__breadcrumb-current {
+    max-width: 30vw;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .topnav-shell .dashboard-header__breadcrumb-sep {
+    opacity: 0.5;
+  }
+
+  /* Search stays functional but becomes a compact "⋯".  The base sets
+   * flex:1 on mobile, which is what inflated it into a full-width pill. */
   .topbar-search {
-    min-width: 40px;
-    width: 40px;
-    height: 40px;
+    flex: 0 0 auto;
+    min-width: 32px;
+    width: 32px;
+    height: 32px;
     padding: 0;
     justify-content: center;
+    border: none;
+    background: transparent;
     font-size: 0;
   }
 
@@ -42,183 +86,179 @@
   .topbar-search::before {
     content: "⋯";
     color: currentColor;
-    font-size: 24px;
+    font-size: 22px;
     line-height: 1;
   }
 
-  .topnav-shell .dashboard-header__breadcrumb-link,
-  .topnav-shell .dashboard-header__breadcrumb-sep,
-  .topnav-shell .dashboard-header__breadcrumb-current {
+  /* Theme mode is a desktop control; the phone header keeps only ⋯. */
+  .topbar-theme-mode {
     display: none;
   }
 
-  /* The breadcrumb reduces to a single clean agent title (no dangling "›"). */
-  .topnav-shell .dashboard-header__breadcrumb {
-    min-width: 0;
-    font-size: 15px;
-    font-weight: 650;
-    letter-spacing: .01em;
+  /* ---------- 2/4/9. Messages: tight, full-width, slim ---------- */
+  .chat-thread {
+    padding: 0 6px 4px;
   }
 
-  .topnav-shell .dashboard-header__breadcrumb-context {
-    display: block;
-    max-width: 55vw;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
+  .chat-group {
+    gap: 6px;
+    margin: 0 0 8px;
   }
 
-  /* Keep the theme mode toggle compact so the topbar stays one clean row. */
-  .topbar-theme-mode {
+  .chat-group-messages {
     gap: 2px;
+    max-width: 100%;
   }
 
-  .topbar-theme-mode__btn {
-    width: 32px;
-    min-width: 32px;
-    height: 32px;
+  .chat-group.user .chat-group-messages {
+    max-width: 88%;
   }
 
-  /* Metadata remains available but stops competing with the message body. */
+  .chat-avatar,
+  img.chat-avatar {
+    display: none;
+  }
+
+  /* Assistant content reads as plain conversation, not dashboard cards. */
+  .chat-group:not(.user) .chat-bubble {
+    padding: 4px 2px;
+    border: none;
+    background: transparent;
+    border-radius: 10px;
+  }
+
+  .chat-group.user .chat-bubble {
+    padding: 7px 11px;
+    border-radius: 16px 16px 4px 16px;
+  }
+
+  /* ---------- 3. Metadata: small, dim, context = icon ---------- */
   .chat-group-footer {
-    gap: 4px;
-    margin-top: 2px;
-    opacity: .58;
+    gap: 3px 6px;
+    margin-top: 1px;
+    opacity: 0.55;
     font-size: 10px;
   }
 
-  .chat-group-footer .msg-meta__summary {
-    min-height: 20px;
-    gap: 2px;
-    padding: 1px 5px;
+  .chat-sender-name,
+  .chat-group-timestamp {
     font-size: 10px;
+    line-height: 1.2;
+  }
+
+  /* Context details collapse to a tiny chevron; the token/cost row stays
+   * hidden until tapped. */
+  .msg-meta {
+    font-size: 10px;
+  }
+
+  .msg-meta__summary {
+    min-height: 16px;
+    padding: 0 4px;
+    font-size: 10px;
+  }
+
+  .msg-meta__summary > span:not(.msg-meta__summary-icon) {
+    display: none;
+  }
+
+  .msg-meta__summary-icon svg {
+    width: 12px;
+    height: 12px;
   }
 
   .chat-group-footer .chat-group-delete {
-    width: 22px;
-    height: 22px;
-    padding: 3px;
+    width: 18px;
+    height: 18px;
+    padding: 2px;
   }
 
+  /* ---------- 5. Bubble actions: small icons, bottom, dimmed ---------- */
   .chat-bubble-actions {
-    gap: 3px;
+    position: static;
+    order: 2;
+    gap: 2px;
+    margin-top: 2px;
+    opacity: 0.35;
   }
 
-  .chat-bubble-actions > * {
+  .chat-bubble-actions .chat-copy-btn,
+  .chat-bubble-actions .chat-expand-btn {
+    width: 24px;
     min-width: 24px;
+    height: 24px;
     min-height: 24px;
-    padding: 3px;
+    padding: 2px;
   }
 
-  /* Context is still available through its title/details, but appears as a
-   * tiny meter instead of a full status row in the default composer. */
-  .agent-chat__composer-status-stack {
-    gap: 4px;
-    padding: 4px 8px 0;
+  /* ---------- 6. Tool calls / errors: one compact status line ---------- */
+  .chat-tool-msg-collapse {
+    margin-top: 4px;
   }
 
-  .context-notice {
-    min-width: 22px;
-    max-width: 30px;
-    height: 14px;
-    gap: 0;
-    padding: 1px 3px;
-    overflow: hidden;
-    font-size: 0;
-  }
-
-  .context-notice > span:not(.context-notice__meter):not(.context-notice__detail) {
-    display: none;
-  }
-
-  .context-notice__detail {
-    display: none;
-  }
-
-  .context-notice__meter {
-    width: 20px;
-    height: 3px;
-  }
-
-  /* Keep model/reasoning available, but make the settings row compact rather
-   * than allowing it to consume a second oversized toolbar. */
-  .agent-chat__composer-controls {
-    gap: 6px;
-  }
-
-  .chat-composer-model-control {
-    flex: 1 1 auto;
-    max-width: 150px;
-  }
-
-  .chat-composer-model-control .chat-controls__model,
-  .chat-composer-model-control .chat-controls__inline-select-trigger {
-    min-height: 32px;
-    height: 32px;
-    font-size: 11px;
-  }
-
-  .chat-composer-model-control .chat-controls__inline-select-trigger {
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-  }
-
-  .chat-settings-chip {
-    min-width: 38px;
-    width: 38px;
-    height: 32px;
-    min-height: 32px;
-    padding: 0 7px;
-  }
-
-  .chat-settings-chip__text,
-  .chat-settings-chip__chevron {
-    display: none;
-  }
-
-  /* Tool/activity cards already have semantic disclosure state in Lit; make
-   * the closed state visually lightweight without removing the action. */
-  .chat-activity-group__summary,
   .chat-tool-msg-summary {
-    min-height: 28px;
-    padding: 5px 8px;
+    min-height: 26px;
+    padding: 3px 8px;
+    border: none;
+    border-radius: 8px;
+    background: color-mix(in srgb, var(--bg-hover, #ffffff14) 55%, transparent);
     font-size: 11px;
+  }
+
+  .chat-tool-msg-summary__icon {
+    width: 14px;
+    height: 14px;
+  }
+
+  .chat-tool-msg-summary__error-badge {
+    min-height: 16px;
+    padding: 0 5px;
+    font-size: 9px;
+  }
+
+  .chat-tool-msg-body {
+    padding-top: 4px;
   }
 
   .chat-tool-card {
+    padding: 5px 8px;
     margin-top: 4px;
-    padding: 7px 9px;
+    border-radius: 8px;
   }
-}
 
-/* The installed/PWA mobile layout reserves an overly generous extra 34px
- * below the composer.  Preserve the real safe-area inset, with a small
- * visual breathing room fallback for devices that report zero. */
-@media (width <= 768px) {
+  .chat-activity-group {
+    border-radius: 8px;
+  }
+
+  .chat-activity-group__summary {
+    min-height: 26px;
+    padding: 4px 8px;
+    font-size: 11px;
+  }
+
+  /* ---------- 7/8. Composer: two compact rows ---------- */
   .agent-chat__input {
-    margin-inline: 8px;
+    margin-inline: 6px;
     margin-bottom: max(6px, var(--safe-area-bottom, 0px));
   }
 
+  /* Context usage no longer owns a row; it is one tap away in the model
+   * popover and the per-message Context metadata. */
   .agent-chat__composer-status-stack {
-    gap: 4px;
-    padding: 4px 8px 0;
+    display: none;
   }
 
   .agent-chat__composer-combobox > textarea {
-    min-height: 38px;
-    padding: 10px 12px 6px;
+    min-height: 44px;
+    max-height: 160px;
+    padding: 12px 12px 6px;
   }
 
-  /* Single clean input row: [attach] [model] [settings] [send].  On narrow
-   * screens the composer otherwise wraps its toolbar into several stacked
-   * micro-rows; pin it to one row and drop the secondary chrome. */
   .agent-chat__toolbar {
     flex-wrap: nowrap;
     align-items: center;
-    gap: 6px;
-    padding: 6px 8px 8px;
+    gap: 4px;
+    padding: 4px 6px 6px;
   }
 
   .agent-chat__toolbar-left,
@@ -226,9 +266,6 @@
     flex: 0 0 auto;
   }
 
-  /* Quota pill (informational), token estimate, attach/talk text labels,
-   * voice-call buttons, and the export / new-session ghost actions all remain
-   * available on desktop but disappear from the phone row. */
   .agent-chat__composer-controls .chat-controls__quota,
   .agent-chat__toolbar-left .agent-chat__control-label,
   .agent-chat__toolbar-left .agent-chat__token-count,
@@ -238,16 +275,56 @@
   }
 
   .agent-chat__input-btn,
-  .agent-chat__toolbar .btn--ghost,
   .chat-send-btn {
-    width: 40px;
-    min-width: 40px;
-    height: 40px;
+    width: 32px;
+    min-width: 32px;
+    height: 32px;
+  }
+
+  .agent-chat__input-btn svg,
+  .chat-send-btn svg {
+    width: 16px;
+    height: 16px;
+  }
+
+  /* Model picker reads as a small inline label, not a full select. */
+  .chat-composer-model-control {
+    flex: 0 1 auto;
+    min-width: 0;
+    max-width: 140px;
+  }
+
+  .chat-composer-model-control .chat-controls__inline-select-trigger {
+    height: 28px;
+    min-height: 28px;
+    padding: 0 6px;
+    border: none;
+    border-radius: 8px;
+    background: color-mix(in srgb, var(--bg-hover, #ffffff14) 50%, transparent);
+    font-size: 11px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .chat-settings-chip {
+    width: 28px;
+    min-width: 28px;
+    height: 28px;
+    min-height: 28px;
+    padding: 0 4px;
+    border-radius: 8px;
+  }
+
+  .chat-settings-chip__text,
+  .chat-settings-chip__chevron {
+    display: none;
   }
 }
 
-/* This rule comes after OpenClaw's standalone-PWA rule and deliberately
- * removes only its artificial minimum; Android's genuine inset still wins. */
+/* The installed/PWA mobile layout reserves an overly generous extra 34px
+ * below the composer.  Preserve the real safe-area inset, with a small
+ * visual breathing room fallback for devices that report zero. */
 @media (display-mode: standalone) and (width <= 768px) {
   .agent-chat__input {
     margin-bottom: max(6px, var(--safe-area-bottom, 0px));

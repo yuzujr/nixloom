@@ -292,7 +292,45 @@ def _sync_control_ui(src: Path, root: Path, css: Path) -> None:
             '<link rel="manifest" href="./manifest.webmanifest" />\n'
             '<link rel="stylesheet" href="./nixloom-control-ui.css" />',
         )
-        index.write_text(html, encoding="utf-8")
+    # Mobile metadata: collapse message timestamps to a bare time for today's
+    # messages (the full date stays in the <time> title).  Pure CSS cannot
+    # re-format text content, so this tiny hook re-writes the label on load
+    # and after streaming mutations.
+    if "<!-- nixloom:timestamp-hook -->" not in html:
+        html = html.replace(
+            "</body>",
+            '<!-- nixloom:timestamp-hook -->\n'
+            '<script>\n'
+            '  (function () {\n'
+            '    var today = new Date().toDateString();\n'
+            '    function pad(n) { return n < 10 ? "0" + n : "" + n; }\n'
+            '    function fmt(ts) {\n'
+            '      var d = new Date(ts);\n'
+            '      if (isNaN(d.getTime())) return "";\n'
+            '      var t = pad(d.getHours()) + ":" + pad(d.getMinutes());\n'
+            '      return d.toDateString() === today\n'
+            '        ? t\n'
+            '        : (d.getMonth() + 1) + "/" + d.getDate() + " " + t;\n'
+            '    }\n'
+            '    function update() {\n'
+            '      var nodes = document.querySelectorAll(".chat-group-timestamp");\n'
+            '      for (var i = 0; i < nodes.length; i++) {\n'
+            '        var ts = nodes[i].getAttribute("datetime");\n'
+            '        if (ts) { var v = fmt(ts); if (v) nodes[i].textContent = v; }\n'
+            '      }\n'
+            '    }\n'
+            '    update();\n'
+            '    if (window.MutationObserver) {\n'
+            '      var timer = null;\n'
+            '      new MutationObserver(function () {\n'
+            '        clearTimeout(timer); timer = setTimeout(update, 100);\n'
+            '      }).observe(document.body, { childList: true, subtree: true });\n'
+            '    }\n'
+            '  })();\n'
+            '</script>\n'
+            '</body>',
+        )
+    index.write_text(html, encoding="utf-8")
 
 
 def _sync_plugin_path(plugin_path: Path | None, suffix: str) -> None:
