@@ -11,6 +11,159 @@
   margin-inline: auto;
 }
 
+/* Phone/PWA chat should read as a conversation, not as a dashboard page.  The
+ * existing search button remains functional (it opens the command palette),
+ * but becomes a compact overflow affordance instead of a 200px-wide pill. */
+@media (width <= 768px) {
+  .topbar {
+    min-height: 52px;
+    padding-inline: 8px;
+  }
+
+  .topnav-shell {
+    min-height: 52px;
+    gap: 8px;
+  }
+
+  .topbar-search {
+    min-width: 40px;
+    width: 40px;
+    height: 40px;
+    padding: 0;
+    justify-content: center;
+    font-size: 0;
+  }
+
+  .topbar-search__label,
+  .topbar-search__kbd {
+    display: none;
+  }
+
+  .topbar-search::before {
+    content: "⋯";
+    color: currentColor;
+    font-size: 24px;
+    line-height: 1;
+  }
+
+  .topnav-shell .dashboard-header__breadcrumb-link,
+  .topnav-shell .dashboard-header__breadcrumb-sep:first-of-type,
+  .topnav-shell .dashboard-header__breadcrumb-current {
+    display: none;
+  }
+
+  .topnav-shell .dashboard-header__breadcrumb {
+    font-size: 14px;
+    font-weight: 600;
+  }
+
+  /* Metadata remains available but stops competing with the message body. */
+  .chat-group-footer {
+    gap: 4px;
+    margin-top: 2px;
+    opacity: .58;
+    font-size: 10px;
+  }
+
+  .chat-group-footer .msg-meta__summary {
+    min-height: 20px;
+    gap: 2px;
+    padding: 1px 5px;
+    font-size: 10px;
+  }
+
+  .chat-group-footer .chat-group-delete {
+    width: 22px;
+    height: 22px;
+    padding: 3px;
+  }
+
+  .chat-bubble-actions {
+    gap: 3px;
+  }
+
+  .chat-bubble-actions > * {
+    min-width: 24px;
+    min-height: 24px;
+    padding: 3px;
+  }
+
+  /* Context is still available through its title/details, but appears as a
+   * tiny meter instead of a full status row in the default composer. */
+  .agent-chat__composer-status-stack {
+    gap: 4px;
+    padding: 4px 8px 0;
+  }
+
+  .context-notice {
+    min-width: 22px;
+    max-width: 30px;
+    height: 14px;
+    gap: 0;
+    padding: 1px 3px;
+    overflow: hidden;
+    font-size: 0;
+  }
+
+  .context-notice > span:not(.context-notice__meter):not(.context-notice__detail) {
+    display: none;
+  }
+
+  .context-notice__detail {
+    display: none;
+  }
+
+  .context-notice__meter {
+    width: 20px;
+    height: 3px;
+  }
+
+  /* Keep model/reasoning available, but make the settings row compact rather
+   * than allowing it to consume a second oversized toolbar. */
+  .agent-chat__composer-controls {
+    gap: 4px;
+  }
+
+  .chat-composer-model-control {
+    flex: 1 1 auto;
+    max-width: 150px;
+  }
+
+  .chat-composer-model-control .chat-controls__model,
+  .chat-composer-model-control .chat-controls__inline-select-trigger {
+    min-height: 32px;
+    height: 32px;
+    font-size: 11px;
+  }
+
+  .chat-settings-chip {
+    min-width: 38px;
+    width: 38px;
+    height: 32px;
+    min-height: 32px;
+    padding: 0 7px;
+  }
+
+  .chat-settings-chip__text,
+  .chat-settings-chip__chevron {
+    display: none;
+  }
+
+  /* Tool/activity cards already have semantic disclosure state in Lit; make
+   * the closed state visually lightweight without removing the action. */
+  .chat-activity-group__summary,
+  .chat-tool-msg-summary {
+    min-height: 28px;
+    padding: 5px 8px;
+    font-size: 11px;
+  }
+
+  .chat-tool-card {
+    margin-top: 4px;
+    padding: 7px 9px;
+  }
+}
+
 /* The installed/PWA mobile layout reserves an overly generous extra 34px
  * below the composer.  Preserve the real safe-area inset, with a small
  * visual breathing room fallback for devices that report zero. */
@@ -22,7 +175,7 @@
 
   .agent-chat__composer-status-stack {
     gap: 4px;
-    padding: 5px 8px 0;
+    padding: 4px 8px 0;
   }
 
   .agent-chat__composer-combobox > textarea {
