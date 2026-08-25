@@ -20,7 +20,6 @@ let
     "OPENCLAW_NIX_MODE=1"
     "NIXLOOM_OPENCLAW_PLUGIN_PATH=${module.package}/share/nixloom/openclaw-plugin-yuanbao"
     "NIXLOOM_OPENCLAW_TAVILY_PLUGIN_PATH=${module.package}/share/nixloom/openclaw-plugin-tavily"
-    "NIXLOOM_OPENCLAW_CONTROL_UI_ROOT=${module.package}/share/nixloom/openclaw-control-ui"
     "PATH=${lib.makeBinPath [ module.package ]}:${hostPath}"
   ];
   prepareEnvironment = lib.concatMapStringsSep " " lib.escapeShellArg [
@@ -30,7 +29,6 @@ let
     "NIXLOOM_CONFIG_FILE=${toString cfg.configFile}"
     "NIXLOOM_OPENCLAW_PLUGIN_PATH=${module.package}/share/nixloom/openclaw-plugin-yuanbao"
     "NIXLOOM_OPENCLAW_TAVILY_PLUGIN_PATH=${module.package}/share/nixloom/openclaw-plugin-tavily"
-    "NIXLOOM_OPENCLAW_CONTROL_UI_ROOT=${module.package}/share/nixloom/openclaw-control-ui"
   ];
   launcher = pkgs.writeShellScript "nixloom-openclaw" ''
     set -eu

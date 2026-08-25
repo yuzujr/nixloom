@@ -79,9 +79,6 @@ def managed_settings(config: Config) -> list[dict[str, Any]]:
         _setting("tools.loopDetection.enabled", True),
         _setting("tools.web.fetch.ssrfPolicy.allowRfc2544BenchmarkRange", True),
     ]
-    control_ui_root = os.environ.get("NIXLOOM_OPENCLAW_CONTROL_UI_ROOT", "").strip()
-    if control_ui_root:
-        settings.append(_setting("gateway.controlUi.root", control_ui_root))
     workspace = config.string("openclaw.workspace", "")
     if workspace:
         if not Path(workspace).is_absolute():
@@ -207,7 +204,7 @@ def _unset_config_value(config: dict[str, Any], path: str) -> bool:
 
 def unmanaged_settings(config: Config) -> list[str]:
     """Return formerly managed paths that must converge to absence."""
-    paths: list[str] = []
+    paths: list[str] = ["gateway.controlUi.root"]
     if not config.string("openclaw.workspace", ""):
         paths.append("agents.defaults.workspace")
     if not config.boolean("images.enabled"):

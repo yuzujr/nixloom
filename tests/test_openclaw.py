@@ -9,8 +9,8 @@ from nixloom.config import Config, RuntimePaths
 from nixloom.openclaw import (
     IMAGE_SETTINGS,
     TAVILY_SETTINGS,
-    YUANBAO_SETTINGS,
     YUANBAO_SECRET_SETTINGS,
+    YUANBAO_SETTINGS,
     _set_batch,
     _unset_paths,
     managed_settings,
@@ -39,18 +39,6 @@ class OpenClawTests(unittest.TestCase):
         self.assertTrue(settings["tools.loopDetection.enabled"])
         self.assertTrue(
             settings["tools.web.fetch.ssrfPolicy.allowRfc2544BenchmarkRange"]
-        )
-
-    def test_control_ui_root_is_taken_from_nix_package_environment(self) -> None:
-        with patch.dict(
-            os.environ,
-            {"NIXLOOM_OPENCLAW_CONTROL_UI_ROOT": "/nix/store/test-control-ui"},
-        ):
-            settings = {
-                item["path"]: item["value"] for item in managed_settings(self.config)
-            }
-        self.assertEqual(
-            settings["gateway.controlUi.root"], "/nix/store/test-control-ui"
         )
 
     def test_tavily_provider_is_configured_when_key_exists(self) -> None:
@@ -94,7 +82,11 @@ class OpenClawTests(unittest.TestCase):
         self.config.value["images"]["enabled"] = False
         self.config.value["openclaw"]["workspace"] = ""
         self.config.value["openclaw"]["yuanbao"] = False
-        expected_unsets = ["agents.defaults.workspace", *IMAGE_SETTINGS]
+        expected_unsets = [
+            "gateway.controlUi.root",
+            "agents.defaults.workspace",
+            *IMAGE_SETTINGS,
+        ]
         with (
             patch("nixloom.openclaw._set_batch") as set_batch,
             patch("nixloom.openclaw._unset_paths") as unset_paths,

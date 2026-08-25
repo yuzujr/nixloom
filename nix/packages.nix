@@ -59,29 +59,27 @@ let
     '';
   };
 
-  # Keep the core and bundled Tavily plugin on the nixpkgs release line.
-  # nixpkgs 2026.6.33 carries the fixed-output hash used by this input.
-  openclaw =
-    if lib.getVersion pkgs.openclaw == "2026.6.33" then
-      pkgs.openclaw.overrideAttrs (_: {
-        pnpmDepsHash = "sha256-rhfO66Nm5JDvozQAXC953QWbC9beUubg+Llykx59M/Q=";
-      })
-    else
-      pkgs.openclaw;
-
-  # Keep the UI patch outside the OpenClaw source tree.  The Gateway supports
-  # serving a custom static Control UI root, so a CSS-only polish layer does
-  # not need a fork or a Vite rebuild of the entire application.
-  controlUi = pkgs.runCommand "nixloom-openclaw-control-ui" { } ''
-    mkdir -p "$out"
-    cp -r ${openclaw}/lib/openclaw/dist/control-ui/. "$out/"
-    cp ${./openclaw-control-ui.css} "$out/nixloom-control-ui.css"
-    substituteInPlace "$out/index.html" \
-      --replace-fail \
-        '<link rel="manifest" href="./manifest.webmanifest" />' \
-        '<link rel="manifest" href="./manifest.webmanifest" />
-    <link rel="stylesheet" href="./nixloom-control-ui.css" />'
-  '';
+  # Keep the core and bundled Tavily plugin on the nixpkgs release line.  The
+  # locked nixpkgs already carries the fixed-output hash for OpenClaw 2026.6.33;
+  # an earlier override pinning a different pnpmDepsHash is gone because it went
+  # stale when nixpkgs-unstable moved and only surfaced on the first rebuild.
+  #
+  # The Control UI polish layer lives outside the OpenClaw source tree as a
+  # CSS file injected into the package's own bundled dist/control-ui at build
+  # time.  The Gateway serves that bundled root on its package-proven path
+  # (rejectHardlinks is disabled for it), so no fork or Vite rebuild is needed
+  # and the Nix store's hard-link dedup does not break serving.
+  openclaw = pkgs.openclaw.overrideAttrs (old: {
+    postInstall = (old.postInstall or "") + ''
+      controlUi="$out/lib/openclaw/dist/control-ui"
+      substituteInPlace "$controlUi/index.html" \
+        --replace-fail \
+          '<link rel="manifest" href="./manifest.webmanifest" />' \
+          '<link rel="manifest" href="./manifest.webmanifest" />
+      <link rel="stylesheet" href="./nixloom-control-ui.css" />'
+      cp ${./openclaw-control-ui.css} "$controlUi/nixloom-control-ui.css"
+    '';
+  });
 
   openclawRuntime = pkgs.symlinkJoin {
     name = "nixloom-openclaw-runtime";
@@ -92,7 +90,6 @@ let
       ln -s ${openclaw}/lib/openclaw \
         "$out/share/nixloom/openclaw-plugin-yuanbao/node_modules/openclaw"
       ln -s ${tavily} "$out/share/nixloom/openclaw-plugin-tavily"
-      cp -r ${controlUi} "$out/share/nixloom/openclaw-control-ui"
     '';
   };
 
