@@ -82,9 +82,13 @@
       items.push({ label: "Session settings", icon: "⚙️", trigger: function () { settings.click(); } });
     }
 
-    var quota = composer.querySelector(".chat-controls__quota");
-    if (quota) {
-      items.push({ label: "Context", icon: "◎", trigger: function () { quota.click(); } });
+    /* "Context" is the conversation context, not billing/usage: reveal the
+     * app's own session context notice (tokens used / window) in place. */
+    var ctxNotice = composer.querySelector(".context-notice");
+    if (ctxNotice) {
+      items.push({ label: "Context", icon: "◎", trigger: function () {
+        composer.classList.toggle("nixloom-ctx");
+      } });
     }
 
     return items;

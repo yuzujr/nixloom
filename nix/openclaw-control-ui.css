@@ -77,6 +77,12 @@
     display: none;
   }
 
+  /* The expanded sidebar drawer (hamburger) is ~86vw by default; cap it near
+   * 60% of the phone width so the conversation stays visible. */
+  .shell-nav {
+    width: min(60vw, 320px);
+  }
+
   /* ---------- 2/4/9. Messages: tight, full-width, slim ---------- */
   .chat-thread {
     padding: 0 6px 4px;
@@ -228,10 +234,24 @@
     margin-bottom: max(6px, var(--safe-area-bottom, 0px));
   }
 
-  /* Context usage no longer owns a row; it is one tap away in the "+" sheet
-   * and the per-message Context metadata. */
+  /* Context usage no longer owns a row; the "+" sheet's Context entry toggles
+   * the class below to reveal the session context notice in place. */
   .agent-chat__composer-status-stack {
     display: none;
+  }
+
+  .agent-chat__input.nixloom-ctx .agent-chat__composer-status-stack {
+    display: flex;
+  }
+
+  .agent-chat__input.nixloom-ctx .agent-chat__composer-status-stack > :not(.context-notice) {
+    display: none;
+  }
+
+  .agent-chat__input.nixloom-ctx .context-notice {
+    min-height: 20px;
+    padding: 2px 8px;
+    font-size: 11px;
   }
 
   .agent-chat__composer-combobox {
