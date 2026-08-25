@@ -79,6 +79,9 @@ def managed_settings(config: Config) -> list[dict[str, Any]]:
         _setting("tools.loopDetection.enabled", True),
         _setting("tools.web.fetch.ssrfPolicy.allowRfc2544BenchmarkRange", True),
     ]
+    control_ui_root = os.environ.get("NIXLOOM_OPENCLAW_CONTROL_UI_ROOT", "").strip()
+    if control_ui_root:
+        settings.append(_setting("gateway.controlUi.root", control_ui_root))
     workspace = config.string("openclaw.workspace", "")
     if workspace:
         if not Path(workspace).is_absolute():

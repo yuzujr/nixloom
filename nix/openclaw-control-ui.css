@@ -1,0 +1,53 @@
+/* NixLoom's small, version-independent Control UI polish layer.
+ *
+ * This is intentionally injected after OpenClaw's own stylesheet.  Keep the
+ * selectors limited to the chat surface so upgrades do not require carrying
+ * a fork of the whole Vite/Lit application.
+ */
+
+/* Keep the transcript readable on wide screens without changing the shell. */
+.chat-thread-inner {
+  width: min(100%, 1100px);
+  margin-inline: auto;
+}
+
+/* The installed/PWA mobile layout reserves an overly generous extra 34px
+ * below the composer.  Preserve the real safe-area inset, with a small
+ * visual breathing room fallback for devices that report zero. */
+@media (width <= 768px) {
+  .agent-chat__input {
+    margin-inline: 8px;
+    margin-bottom: max(6px, var(--safe-area-bottom, 0px));
+  }
+
+  .agent-chat__composer-status-stack {
+    gap: 4px;
+    padding: 5px 8px 0;
+  }
+
+  .agent-chat__composer-combobox > textarea {
+    min-height: 38px;
+    padding: 10px 12px 6px;
+  }
+
+  .agent-chat__toolbar {
+    gap: 4px;
+    padding: 4px 6px;
+  }
+
+  .agent-chat__input-btn,
+  .agent-chat__toolbar .btn--ghost,
+  .chat-send-btn {
+    width: 40px;
+    min-width: 40px;
+    height: 40px;
+  }
+}
+
+/* This rule comes after OpenClaw's standalone-PWA rule and deliberately
+ * removes only its artificial minimum; Android's genuine inset still wins. */
+@media (display-mode: standalone) and (width <= 768px) {
+  .agent-chat__input {
+    margin-bottom: max(6px, var(--safe-area-bottom, 0px));
+  }
+}

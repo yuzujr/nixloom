@@ -69,6 +69,20 @@ let
     else
       pkgs.openclaw;
 
+  # Keep the UI patch outside the OpenClaw source tree.  The Gateway supports
+  # serving a custom static Control UI root, so a CSS-only polish layer does
+  # not need a fork or a Vite rebuild of the entire application.
+  controlUi = pkgs.runCommand "nixloom-openclaw-control-ui" { } ''
+    mkdir -p "$out"
+    cp -r ${openclaw}/lib/openclaw/dist/control-ui/. "$out/"
+    cp ${./openclaw-control-ui.css} "$out/nixloom-control-ui.css"
+    substituteInPlace "$out/index.html" \
+      --replace-fail \
+        '<link rel="manifest" href="./manifest.webmanifest" />' \
+        '<link rel="manifest" href="./manifest.webmanifest" />
+    <link rel="stylesheet" href="./nixloom-control-ui.css" />'
+  '';
+
   openclawRuntime = pkgs.symlinkJoin {
     name = "nixloom-openclaw-runtime";
     paths = [ openclaw ];
@@ -78,6 +92,7 @@ let
       ln -s ${openclaw}/lib/openclaw \
         "$out/share/nixloom/openclaw-plugin-yuanbao/node_modules/openclaw"
       ln -s ${tavily} "$out/share/nixloom/openclaw-plugin-tavily"
+      cp -r ${controlUi} "$out/share/nixloom/openclaw-control-ui"
     '';
   };
 
