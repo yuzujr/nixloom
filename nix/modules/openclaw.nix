@@ -36,6 +36,7 @@ let
     "NIXLOOM_OPENCLAW_CONTROL_UI_ROOT=${stateDir}/.openclaw/control-ui"
     "NIXLOOM_OPENCLAW_CONTROL_UI_SRC=${module.package}/lib/openclaw/dist/control-ui"
     "NIXLOOM_OPENCLAW_CONTROL_UI_CSS=${module.package}/share/nixloom/openclaw-control-ui.css"
+    "NIXLOOM_OPENCLAW_CONTROL_UI_JS=${module.package}/share/nixloom/openclaw-control-ui.js"
   ];
   launcher = pkgs.writeShellScript "nixloom-openclaw" ''
     set -eu

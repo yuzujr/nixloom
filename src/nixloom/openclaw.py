@@ -259,7 +259,24 @@ def _write_secret(path: Path, value: str) -> None:
         Path(temporary_name).unlink(missing_ok=True)
 
 
-def _sync_control_ui(src: Path, root: Path, css: Path) -> None:
+def _patch_index(html: str, marker: str, anchor: str, replacement: str) -> str:
+    """Insert ``replacement`` at ``anchor`` unless ``marker`` is already present.
+
+    Raises ConfigError when the anchor is missing or ambiguous, so an openclaw
+    upgrade that changes the page shell fails loudly instead of silently
+    serving an unpatched UI.
+    """
+    if marker in html:
+        return html
+    count = html.count(anchor)
+    if count == 0:
+        raise ConfigError(f"Control UI index.html lost its {anchor!r} anchor")
+    if count > 1:
+        raise ConfigError(f"Control UI index.html has {count}x {anchor!r} anchors")
+    return html.replace(anchor, replacement)
+
+
+def _sync_control_ui(src: Path, root: Path, css: Path, js: Path) -> None:
     """Mirror the packaged Control UI into a mutable state-dir copy.
 
     The gateway serves a custom ``controlUi.root`` with ``rejectHardlinks``
@@ -267,130 +284,47 @@ def _sync_control_ui(src: Path, root: Path, css: Path) -> None:
     check rejects.  A plain copy (``cp`` semantics) yields ``nlink == 1`` files
     that pass the check, and lets the CSS be edited in place for fast phone
     iteration without rebuilding the openclaw package.
+
+    The polish layer (CSS + adaptive JS) is carried by the runtime and injected
+    here with anchor-verified substitutions; see ``_patch_index``.
     """
     root.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
     shutil.rmtree(root, ignore_errors=True)
     shutil.copytree(src, root)
     # Store files come out read-only (0444) and the store dirs read-execute
-    # (0555); make the whole copy writable first so the CSS copy and the
-    # index.html patch below can write.
+    # (0555); make the whole copy writable so the injected files and the
+    # index.html patches below can write.
     for dirpath, _dirnames, filenames in os.walk(root):
         os.chmod(dirpath, 0o755)
         for name in filenames:
             os.chmod(os.path.join(dirpath, name), 0o644)
-    # The packaged dist carries no polish layer; inject the repo CSS and its
-    # <link> into the served copy so the package never rebuilds for a style
-    # change.
-    shutil.copy2(css, root / "nixloom-control-ui.css")
-    # copy2 preserves the store's 0444; the CSS is the file meant for editing.
-    os.chmod(root / "nixloom-control-ui.css", 0o644)
+    # Copy the polish assets in as separate files so editing them never
+    # rebuilds the openclaw package.
+    for source, name in ((css, "nixloom-control-ui.css"), (js, "nixloom-control-ui.js")):
+        shutil.copy2(source, root / name)
+        # copy2 preserves the store's 0444; the CSS is the file meant for
+        # editing, and the JS stays readable.
+        os.chmod(root / name, 0o644)
+
     index = root / "index.html"
     html = index.read_text(encoding="utf-8")
-    if "nixloom-control-ui.css" not in html:
-        # Inject the polish stylesheet at the END of <head>, i.e. AFTER
-        # OpenClaw's own assets/index-*.css link.  Same-specificity rules
-        # cascade in document order, so the polish layer must load last or the
-        # base mobile rules win and none of the overrides take effect.
-        html = html.replace(
-            "</head>",
-            '<link rel="stylesheet" href="./nixloom-control-ui.css" />\n</head>',
-        )
-    # Mobile "+" entry point: a bottom sheet that re-triggers the existing
-    # low-frequency composer actions (attach / voice / settings / context),
-    # which are hidden from the compact two-row layout but never removed.
-    # The sheet lives outside the Lit-rendered subtree and is wired via
-    # document-level delegation, so re-renders cannot drop it.
-    if "<!-- nixloom:composer-more -->" not in html:
-        html = html.replace(
-            "</body>",
-            '<!-- nixloom:composer-more -->\n'
-            '<script>\n'
-            '  (function () {\n'
-            '    if (window.innerWidth > 768) return;\n'
-            '    var ITEMS = [\n'
-            '      { label: "Attach file", icon: "\\uD83D\\uDCCE", sel: ".agent-chat__file-input" },\n'
-            '      { label: "Voice", icon: "\\uD83C\\uDF99", sel: ".agent-chat__toolbar-left .agent-chat__input-btn:nth-of-type(2)" },\n'
-            '      { label: "Session settings", icon: "\\u2699\\uFE0F", sel: ".chat-settings-chip" },\n'
-            '      { label: "Context", icon: "\\u25CE", sel: ".chat-controls__quota" }\n'
-            '    ];\n'
-            '    var SHEET = null, BACKDROP = null;\n'
-            '    function trigger(item) { var el = document.querySelector(item.sel); if (el) el.click(); }\n'
-            '    function close() {\n'
-            '      if (SHEET) SHEET.style.transform = "translateY(110%)";\n'
-            '      if (BACKDROP) BACKDROP.style.opacity = "0";\n'
-            '      setTimeout(function () { if (BACKDROP) BACKDROP.style.display = "none"; }, 200);\n'
-            '    }\n'
-            '    function ensure() {\n'
-            '      if (SHEET) return;\n'
-            '      BACKDROP = document.createElement("div");\n'
-            '      BACKDROP.style.cssText = "position:fixed;inset:0;z-index:9998;background:rgba(0,0,0,.45);opacity:0;transition:opacity .18s ease;display:none;";\n'
-            '      BACKDROP.addEventListener("click", close);\n'
-            '      document.body.appendChild(BACKDROP);\n'
-            '      SHEET = document.createElement("div");\n'
-            '      SHEET.id = "nixloom-composer-more";\n'
-            '      SHEET.setAttribute("role", "menu");\n'
-            '      SHEET.style.cssText = "position:fixed;left:0;right:0;bottom:0;z-index:9999;box-sizing:border-box;background:var(--card,#161b22);border-top:1px solid var(--border,#2a3038);border-radius:16px 16px 0 0;padding:6px 0 max(10px,env(safe-area-inset-bottom));transform:translateY(110%);transition:transform .18s ease;box-shadow:0 -8px 40px rgba(0,0,0,.35);";\n'
-            '      ITEMS.forEach(function (item) {\n'
-            '        var b = document.createElement("button");\n'
-            '        b.type = "button";\n'
-            '        b.textContent = item.icon + "  " + item.label;\n'
-            '        b.style.cssText = "display:flex;width:100%;align-items:center;gap:10px;padding:13px 20px;font:inherit;font-size:15px;color:var(--text);background:none;border:none;text-align:left;cursor:pointer;";\n'
-            '        b.addEventListener("click", function () { close(); trigger(item); });\n'
-            '        SHEET.appendChild(b);\n'
-            '      });\n'
-            '      document.body.appendChild(SHEET);\n'
-            '    }\n'
-            '    function open() {\n'
-            '      ensure();\n'
-            '      if (BACKDROP) { BACKDROP.style.display = "block"; requestAnimationFrame(function () { BACKDROP.style.opacity = "1"; }); }\n'
-            '      if (SHEET) requestAnimationFrame(function () { SHEET.style.transform = "translateY(0)"; });\n'
-            '    }\n'
-            '    document.addEventListener("click", function (e) {\n'
-            '      var t = e.target.closest ? e.target.closest(".agent-chat__toolbar-left .agent-chat__input-btn") : null;\n'
-            '      if (t) { e.preventDefault(); e.stopPropagation(); open(); }\n'
-            '    }, true);\n'
-            '  })();\n'
-            '</script>\n'
-            '</body>',
-        )
-    # Mobile metadata: collapse message timestamps to a bare time for today's
-    # messages (the full date stays in the <time> title).  Pure CSS cannot
-    # re-format text content, so this tiny hook re-writes the label on load
-    # and after streaming mutations.
-    if "<!-- nixloom:timestamp-hook -->" not in html:
-        html = html.replace(
-            "</body>",
-            '<!-- nixloom:timestamp-hook -->\n'
-            '<script>\n'
-            '  (function () {\n'
-            '    var today = new Date().toDateString();\n'
-            '    function pad(n) { return n < 10 ? "0" + n : "" + n; }\n'
-            '    function fmt(ts) {\n'
-            '      var d = new Date(ts);\n'
-            '      if (isNaN(d.getTime())) return "";\n'
-            '      var t = pad(d.getHours()) + ":" + pad(d.getMinutes());\n'
-            '      return d.toDateString() === today\n'
-            '        ? t\n'
-            '        : (d.getMonth() + 1) + "/" + d.getDate() + " " + t;\n'
-            '    }\n'
-            '    function update() {\n'
-            '      var nodes = document.querySelectorAll(".chat-group-timestamp");\n'
-            '      for (var i = 0; i < nodes.length; i++) {\n'
-            '        var ts = nodes[i].getAttribute("datetime");\n'
-            '        if (ts) { var v = fmt(ts); if (v) nodes[i].textContent = v; }\n'
-            '      }\n'
-            '    }\n'
-            '    update();\n'
-            '    if (window.MutationObserver) {\n'
-            '      var timer = null;\n'
-            '      new MutationObserver(function () {\n'
-            '        clearTimeout(timer); timer = setTimeout(update, 100);\n'
-            '      }).observe(document.body, { childList: true, subtree: true });\n'
-            '    }\n'
-            '  })();\n'
-            '</script>\n'
-            '</body>',
-        )
+    # 1. Polish stylesheet AFTER OpenClaw's own assets/index-*.css link, so
+    #    same-specificity mobile overrides win the cascade.
+    html = _patch_index(
+        html,
+        "nixloom-control-ui.css",
+        "</head>",
+        '<link rel="stylesheet" href="./nixloom-control-ui.css" />\n</head>',
+    )
+    # 2. Adaptive script as an external same-origin file (the gateway CSP
+    #    allows script-src 'self'; inline scripts are a policy hazard and
+    #    harder to maintain).
+    html = _patch_index(
+        html,
+        "nixloom-control-ui.js",
+        "</body>",
+        '<script src="./nixloom-control-ui.js"></script>\n</body>',
+    )
     index.write_text(html, encoding="utf-8")
 
 
@@ -493,9 +427,13 @@ def prepare(config: Config, paths: RuntimePaths) -> None:
     control_ui_src = os.environ.get("NIXLOOM_OPENCLAW_CONTROL_UI_SRC", "").strip()
     control_ui_root = os.environ.get("NIXLOOM_OPENCLAW_CONTROL_UI_ROOT", "").strip()
     control_ui_css = os.environ.get("NIXLOOM_OPENCLAW_CONTROL_UI_CSS", "").strip()
-    if control_ui_src and control_ui_root and control_ui_css:
+    control_ui_js = os.environ.get("NIXLOOM_OPENCLAW_CONTROL_UI_JS", "").strip()
+    if control_ui_src and control_ui_root and control_ui_css and control_ui_js:
         _sync_control_ui(
-            Path(control_ui_src), Path(control_ui_root), Path(control_ui_css)
+            Path(control_ui_src),
+            Path(control_ui_root),
+            Path(control_ui_css),
+            Path(control_ui_js),
         )
     reconcile_settings(config)
 

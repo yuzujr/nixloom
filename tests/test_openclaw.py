@@ -61,7 +61,7 @@ class OpenClawTests(unittest.TestCase):
             src.mkdir()
             (src / "index.html").write_text(
                 '<head><link rel="stylesheet" href="./assets/base.css" /></head>\n'
-                '<link rel="manifest" href="./manifest.webmanifest" />\n',
+                '<link rel="manifest" href="./manifest.webmanifest" />\n</body>\n',
                 encoding="utf-8",
             )
             (src / "app.js").write_text("app", encoding="utf-8")
@@ -71,8 +71,10 @@ class OpenClawTests(unittest.TestCase):
                 os.chmod(f, 0o444)
             css = Path(temporary) / "style.css"
             css.write_text("body{}", encoding="utf-8")
+            js = Path(temporary) / "ui.js"
+            js.write_text("(function(){})();", encoding="utf-8")
             root = Path(temporary) / "root"
-            _sync_control_ui(src, root, css)
+            _sync_control_ui(src, root, css, js)
             html = (root / "index.html").read_text(encoding="utf-8")
             self.assertIn("./nixloom-control-ui.css", html)
             # The polish stylesheet must load after the base stylesheet, or
@@ -80,8 +82,13 @@ class OpenClawTests(unittest.TestCase):
             self.assertLess(
                 html.index("./assets/base.css"), html.index("./nixloom-control-ui.css")
             )
+            self.assertIn('<script src="./nixloom-control-ui.js">', html)
             self.assertEqual(
                 (root / "nixloom-control-ui.css").read_text(encoding="utf-8"), "body{}"
+            )
+            self.assertEqual(
+                (root / "nixloom-control-ui.js").read_text(encoding="utf-8"),
+                "(function(){})();",
             )
             self.assertEqual((root / "app.js").stat().st_nlink, 1)
 

@@ -82,6 +82,7 @@ let
         "$out/share/nixloom/openclaw-plugin-yuanbao/node_modules/openclaw"
       ln -s ${tavily} "$out/share/nixloom/openclaw-plugin-tavily"
       cp ${./openclaw-control-ui.css} "$out/share/nixloom/openclaw-control-ui.css"
+      cp ${./openclaw-control-ui.js} "$out/share/nixloom/openclaw-control-ui.js"
     '';
   };
 
