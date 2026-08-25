@@ -287,10 +287,13 @@ def _sync_control_ui(src: Path, root: Path, css: Path) -> None:
     index = root / "index.html"
     html = index.read_text(encoding="utf-8")
     if "nixloom-control-ui.css" not in html:
+        # Inject the polish stylesheet at the END of <head>, i.e. AFTER
+        # OpenClaw's own assets/index-*.css link.  Same-specificity rules
+        # cascade in document order, so the polish layer must load last or the
+        # base mobile rules win and none of the overrides take effect.
         html = html.replace(
-            '<link rel="manifest" href="./manifest.webmanifest" />',
-            '<link rel="manifest" href="./manifest.webmanifest" />\n'
-            '<link rel="stylesheet" href="./nixloom-control-ui.css" />',
+            "</head>",
+            '<link rel="stylesheet" href="./nixloom-control-ui.css" />\n</head>',
         )
     # Mobile metadata: collapse message timestamps to a bare time for today's
     # messages (the full date stays in the <time> title).  Pure CSS cannot

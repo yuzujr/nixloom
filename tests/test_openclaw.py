@@ -60,6 +60,7 @@ class OpenClawTests(unittest.TestCase):
             src = Path(temporary) / "src"
             src.mkdir()
             (src / "index.html").write_text(
+                '<head><link rel="stylesheet" href="./assets/base.css" /></head>\n'
                 '<link rel="manifest" href="./manifest.webmanifest" />\n',
                 encoding="utf-8",
             )
@@ -74,6 +75,11 @@ class OpenClawTests(unittest.TestCase):
             _sync_control_ui(src, root, css)
             html = (root / "index.html").read_text(encoding="utf-8")
             self.assertIn("./nixloom-control-ui.css", html)
+            # The polish stylesheet must load after the base stylesheet, or
+            # same-specificity cascade lets the base mobile rules win.
+            self.assertLess(
+                html.index("./assets/base.css"), html.index("./nixloom-control-ui.css")
+            )
             self.assertEqual(
                 (root / "nixloom-control-ui.css").read_text(encoding="utf-8"), "body{}"
             )
