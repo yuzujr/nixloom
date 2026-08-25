@@ -71,6 +71,11 @@ def managed_settings(config: Config) -> list[dict[str, Any]]:
         _setting("models.mode", "merge"),
         _setting("models.providers.nixloom", provider),
         _setting("agents.defaults.model.primary", f"nixloom/{model_id}"),
+        # Keep the Control UI picker and /model overrides limited to the
+        # model actually served by nixloom.  OpenClaw's bundled provider
+        # catalogs otherwise add unrelated models (notably OpenAI/Codex
+        # entries) to the picker even when no such provider is configured.
+        _setting("agents.defaults.models", {f"nixloom/{model_id}": {}}),
         _setting("tools.loopDetection.enabled", True),
         _setting("tools.web.fetch.ssrfPolicy.allowRfc2544BenchmarkRange", True),
     ]
