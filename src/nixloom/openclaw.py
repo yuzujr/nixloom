@@ -368,9 +368,9 @@ def run(config: Config, paths: RuntimePaths, *, dry_run: bool = False) -> None:
 
     prepare(config, paths)
     runtime_dir = paths.state / ".run"
-    os.environ["OPENCLAW_GATEWAY_TOKEN"] = (runtime_dir / "openclaw-gateway-token").read_text(
-        encoding="utf-8"
-    ).strip()
+    os.environ["OPENCLAW_GATEWAY_TOKEN"] = _ensure_token(
+        runtime_dir / "openclaw-gateway-token"
+    )
     os.environ["TAVILY_API_KEY"] = (runtime_dir / "openclaw-tavily-api-key").read_text(
         encoding="utf-8"
     )
