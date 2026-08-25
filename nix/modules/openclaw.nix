@@ -82,7 +82,12 @@ in
           "yuanbao-app-key:${stateDir}/.run/openclaw-yuanbao-app-key"
           "yuanbao-app-secret:${stateDir}/.run/openclaw-yuanbao-app-secret"
         ];
-        Restart = "on-failure";
+        # OpenClaw's gateway performs its own "full process restart" (supervisor
+        # restart) when the live config changes, and the restarted main process
+        # then exits cleanly (status 0).  Under "on-failure" that clean exit is
+        # treated as a normal stop and the unit is left dead; "always" makes
+        # systemd the supervisor so the gateway comes back with the new config.
+        Restart = "always";
         RestartSec = "5s";
         TimeoutStartSec = "infinity";
         TimeoutStopSec = "30s";
