@@ -262,8 +262,10 @@
 
   /* Revealed context owns its own row (fixed height) so the send button,
    * which is pinned to the textarea row, is pushed down to stay beside the
-   * input rather than overlapping the context line. */
-  .agent-chat__input.nixloom-ctx .agent-chat__composer-status-stack {
+   * input rather than overlapping the context line.  Driven by a class on
+   * <body> (Lit never re-renders body, so this survives without an observer).
+   */
+  body.nixloom-ctx .agent-chat__composer-status-stack {
     display: flex;
     height: 24px;
     box-sizing: border-box;
@@ -272,17 +274,17 @@
     gap: 4px;
   }
 
-  .agent-chat__input.nixloom-ctx .agent-chat__composer-status-stack > :not(.context-notice) {
+  body.nixloom-ctx .agent-chat__composer-status-stack > :not(.context-notice) {
     display: none;
   }
 
-  .agent-chat__input.nixloom-ctx .context-notice {
+  body.nixloom-ctx .context-notice {
     min-height: 18px;
     padding: 1px 6px;
     font-size: 11px;
   }
 
-  .agent-chat__input.nixloom-ctx .agent-chat__toolbar-right {
+  body.nixloom-ctx .agent-chat__toolbar-right {
     top: 30px; /* 6px default + the 24px context row */
   }
 

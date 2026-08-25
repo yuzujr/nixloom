@@ -56,23 +56,12 @@
   var SHEET = null;
   var BACKDROP = null;
 
-  /* "Context" reveal is tracked in a flag and re-applied after re-renders:
-   * Lit owns the composer's className, so any state update rebuilds it without
-   * our class.  A MutationObserver re-adds it shortly after (same pattern as
-   * the timestamp formatting), so the class survives until toggled off. */
-  var ctxMode = false;
-
-  function applyCtxClass() {
-    var composer = document.querySelector(".agent-chat__input");
-    if (composer) composer.classList.toggle("nixloom-ctx", ctxMode);
+  /* "Context" reveal is a class on <body> — Lit re-renders the composer (and
+   * owns its className) but never touches body, so no observer or re-apply is
+   * needed; the CSS just keys off body.nixloom-ctx. */
+  function toggleContext() {
+    document.body.classList.toggle("nixloom-ctx");
   }
-
-  var ctxApplyTimer = null;
-  new MutationObserver(function () {
-    if (!ctxMode) return;
-    clearTimeout(ctxApplyTimer);
-    ctxApplyTimer = setTimeout(applyCtxClass, 50);
-  }).observe(document.body, { childList: true, subtree: true });
 
   /* Items carry selectors, not element references, and are re-queried at
    * trigger time: Lit re-renders the composer constantly, so a captured node
@@ -156,8 +145,7 @@
         if (e) { e.preventDefault(); e.stopPropagation(); }
         closeSheet();
         if (item.special === "context") {
-          ctxMode = !ctxMode;
-          applyCtxClass();
+          toggleContext();
         } else {
           var el = document.querySelector(item.sel);
           if (el) el.click();
