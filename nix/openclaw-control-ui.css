@@ -18,9 +18,22 @@
 
 /* ============================= Mobile ============================= */
 @media (width <= 768px) {
-  /* ---------- 1. Header: ☰ + agent name only, no search / ⋯ ---------- */
+  /* ---------- 1. Header: ☰ + agent name only, floating over the chat ----------
+   * The topbar row is reclaimed (0 height) and the bar is absolutely
+   * positioned, so the conversation runs all the way to the top of the screen
+   * and the hamburger floats above it — no opaque header row. */
+  .shell {
+    grid-template-areas: "topbar" "content";
+    grid-template-rows: 0 1fr;
+  }
+
   .topbar {
-    min-height: 48px;
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    z-index: 40;
+    min-height: 0;
     padding: 4px 6px;
     border-bottom: none;
     background: transparent;
@@ -29,7 +42,7 @@
   }
 
   .topnav-shell {
-    min-height: 40px;
+    min-height: 0;
     gap: 6px;
   }
 
@@ -78,9 +91,15 @@
   }
 
   /* The expanded sidebar drawer (hamburger) is ~86vw by default; cap it near
-   * 60% of the phone width so the conversation stays visible. */
+   * 70% of the phone width so the conversation stays visible. */
   .shell-nav {
-    width: min(60vw, 320px);
+    width: min(70vw, 320px);
+  }
+
+  /* Tap-to-trigger buttons must not pop a tooltip on the phone; the floating
+   * tooltip is a desktop hover affordance. */
+  .control-ui-floating-tooltip {
+    display: none !important;
   }
 
   /* ---------- 2/4/9. Messages: tight, full-width, slim ---------- */
@@ -240,8 +259,16 @@
     display: none;
   }
 
+  /* Revealed context owns its own row (fixed height) so the send button,
+   * which is pinned to the textarea row, is pushed down to stay beside the
+   * input rather than overlapping the context line. */
   .agent-chat__input.nixloom-ctx .agent-chat__composer-status-stack {
     display: flex;
+    height: 24px;
+    box-sizing: border-box;
+    padding: 2px 8px 0;
+    align-items: center;
+    gap: 4px;
   }
 
   .agent-chat__input.nixloom-ctx .agent-chat__composer-status-stack > :not(.context-notice) {
@@ -249,9 +276,13 @@
   }
 
   .agent-chat__input.nixloom-ctx .context-notice {
-    min-height: 20px;
-    padding: 2px 8px;
+    min-height: 18px;
+    padding: 1px 6px;
     font-size: 11px;
+  }
+
+  .agent-chat__input.nixloom-ctx .agent-chat__toolbar-right {
+    top: 30px; /* 6px default + the 24px context row */
   }
 
   .agent-chat__composer-combobox {

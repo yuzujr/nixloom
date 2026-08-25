@@ -56,58 +56,76 @@
   var SHEET = null;
   var BACKDROP = null;
 
-  /* Re-query the composer controls fresh on every open so Lit re-renders can
-   * never leave us holding detached nodes.  Items that have no backing control
-   * in the current session are simply omitted — nothing is shown that cannot
-   * actually run. */
+  /* "Context" reveal is tracked in a flag and re-applied after re-renders:
+   * Lit owns the composer's className, so any state update rebuilds it without
+   * our class.  A MutationObserver re-adds it shortly after (same pattern as
+   * the timestamp formatting), so the class survives until toggled off. */
+  var ctxMode = false;
+
+  function applyCtxClass() {
+    var composer = document.querySelector(".agent-chat__input");
+    if (composer) composer.classList.toggle("nixloom-ctx", ctxMode);
+  }
+
+  var ctxApplyTimer = null;
+  new MutationObserver(function () {
+    if (!ctxMode) return;
+    clearTimeout(ctxApplyTimer);
+    ctxApplyTimer = setTimeout(applyCtxClass, 50);
+  }).observe(document.body, { childList: true, subtree: true });
+
+  /* Items carry selectors, not element references, and are re-queried at
+   * trigger time: Lit re-renders the composer constantly, so a captured node
+   * would go stale.  Items that have no backing control in the current session
+   * are omitted entirely — nothing is shown that cannot actually run. */
   function buildItems() {
     var composer = document.querySelector(".agent-chat__input");
     if (!composer) return [];
     var items = [];
 
-    var file = composer.querySelector(".agent-chat__file-input");
-    if (file) {
-      items.push({ label: "Attach file", icon: "📎", trigger: function () { file.click(); } });
+    if (composer.querySelector(".agent-chat__file-input")) {
+      items.push({ label: "Attach file", icon: "📎", sel: ".agent-chat__file-input" });
     }
-
-    var voice = composer.querySelector(
-      ".agent-chat__toolbar-left .agent-chat__input-btn:nth-of-type(2)",
-    );
-    if (voice) {
-      items.push({ label: "Voice", icon: "🎙", trigger: function () { voice.click(); } });
+    if (composer.querySelector(".agent-chat__toolbar-left .agent-chat__input-btn:nth-of-type(2)")) {
+      items.push({ label: "Voice", icon: "🎙", sel: ".agent-chat__toolbar-left .agent-chat__input-btn:nth-of-type(2)" });
     }
-
-    var settings = composer.querySelector(".chat-settings-chip");
-    if (settings) {
-      items.push({ label: "Session settings", icon: "⚙️", trigger: function () { settings.click(); } });
+    if (composer.querySelector(".chat-settings-chip")) {
+      items.push({ label: "Session settings", icon: "⚙️", sel: ".chat-settings-chip" });
     }
-
     /* "Context" is the conversation context, not billing/usage: reveal the
      * app's own session context notice (tokens used / window) in place. */
-    var ctxNotice = composer.querySelector(".context-notice");
-    if (ctxNotice) {
-      items.push({ label: "Context", icon: "◎", trigger: function () {
-        composer.classList.toggle("nixloom-ctx");
-      } });
+    if (composer.querySelector(".context-notice")) {
+      items.push({ label: "Context", icon: "◎", special: "context" });
     }
 
     return items;
   }
 
+  var openedAt = 0;
+
   function closeSheet() {
+    /* The tap that opened the sheet keeps producing trailing events (pointerup,
+     * a synthetic click, a re-render) for a few ms; those must not instantly
+     * tear the sheet back down.  Ignore closes inside a short window after
+     * opening — the user can still dismiss by tapping the backdrop later. */
+    if (Date.now() - openedAt < 250) return;
     if (BACKDROP) { BACKDROP.remove(); BACKDROP = null; }
     if (SHEET) { SHEET.remove(); SHEET = null; }
   }
 
   function openSheet() {
     closeSheet();
+    openedAt = Date.now();
     var items = buildItems();
     if (!items.length) return;
 
     BACKDROP = document.createElement("div");
     BACKDROP.style.cssText =
       "position:fixed;inset:0;z-index:9998;background:rgba(0,0,0,.45);";
-    BACKDROP.addEventListener("click", closeSheet);
+    /* Close on pointerdown, not click: the tap that opened the sheet generates
+     * a synthetic click that would otherwise land on the freshly-added
+     * backdrop and instantly close it again (the ADDED→REMOVED symptom). */
+    BACKDROP.addEventListener("pointerdown", closeSheet);
     document.body.appendChild(BACKDROP);
 
     SHEET = document.createElement("div");
@@ -126,9 +144,24 @@
         "display:flex;width:100%;align-items:center;gap:10px;padding:13px 20px;" +
         "font:inherit;font-size:15px;color:var(--text);background:none;border:none;" +
         "text-align:left;cursor:pointer;";
-      b.addEventListener("click", function () {
+      b.addEventListener("click", function (e) {
+        /* The tap that opened the sheet covers the "+" button, so its trailing
+         * synthetic click can land on a sheet item and trigger it
+         * unintentionally.  Ignore item clicks inside a short window after
+         * opening — a real user takes longer than that to pick an item. */
+        if (Date.now() - openedAt < 250) return;
+        /* Stop the tap from reaching the app: a bubble-phase document handler
+         * would otherwise trigger a Lit state update that re-renders the
+         * composer and wipes the class we are about to toggle. */
+        if (e) { e.preventDefault(); e.stopPropagation(); }
         closeSheet();
-        item.trigger();
+        if (item.special === "context") {
+          ctxMode = !ctxMode;
+          applyCtxClass();
+        } else {
+          var el = document.querySelector(item.sel);
+          if (el) el.click();
+        }
       });
       SHEET.appendChild(b);
     });
@@ -136,8 +169,31 @@
   }
 
   /* The "+" button opens the sheet instead of the file picker; the sheet's
-   * "Attach file" entry drives the file input directly.  Capture-phase
-   * delegation on document survives every Lit re-render. */
+   * "Attach file" entry drives the file input directly.  Wire it on
+   * pointerdown, not click: on a touch screen the app's composer focus step
+   * swallows the synthetic click on the first tap (the event flow shows
+   * pointerdown → focusin → mouseup with no click), which made "+" require
+   * two taps.  pointerdown fires before that focus, and preventDefault stops
+   * the focus/file-picker from ever happening.  Capture-phase delegation on
+   * document survives every Lit re-render. */
+  document.addEventListener(
+    "pointerdown",
+    function (e) {
+      var target = e.target.closest
+        ? e.target.closest(".agent-chat__toolbar-left .agent-chat__input-btn")
+        : null;
+      if (target) {
+        e.preventDefault();
+        e.stopPropagation();
+        openSheet();
+      }
+    },
+    true,
+  );
+
+  /* The opening tap's synthetic click still lands on the button even though
+   * pointerdown was prevented; swallow it so the app's own file-picker
+   * handler never fires for a "+" that now means "open the sheet". */
   document.addEventListener(
     "click",
     function (e) {
@@ -147,7 +203,6 @@
       if (target) {
         e.preventDefault();
         e.stopPropagation();
-        openSheet();
       }
     },
     true,
