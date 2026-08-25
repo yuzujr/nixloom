@@ -259,7 +259,7 @@ def _write_secret(path: Path, value: str) -> None:
         Path(temporary_name).unlink(missing_ok=True)
 
 
-def _sync_control_ui(src: Path, root: Path) -> None:
+def _sync_control_ui(src: Path, root: Path, css: Path) -> None:
     """Mirror the packaged Control UI into a mutable state-dir copy.
 
     The gateway serves a custom ``controlUi.root`` with ``rejectHardlinks``
@@ -271,12 +271,28 @@ def _sync_control_ui(src: Path, root: Path) -> None:
     root.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
     shutil.rmtree(root, ignore_errors=True)
     shutil.copytree(src, root)
-    # Store files come out read-only (0444); the whole point of the copy is to
-    # be editable, so make everything writable for the owning user.
+    # Store files come out read-only (0444) and the store dirs read-execute
+    # (0555); make the whole copy writable first so the CSS copy and the
+    # index.html patch below can write.
     for dirpath, _dirnames, filenames in os.walk(root):
         os.chmod(dirpath, 0o755)
         for name in filenames:
             os.chmod(os.path.join(dirpath, name), 0o644)
+    # The packaged dist carries no polish layer; inject the repo CSS and its
+    # <link> into the served copy so the package never rebuilds for a style
+    # change.
+    shutil.copy2(css, root / "nixloom-control-ui.css")
+    # copy2 preserves the store's 0444; the CSS is the file meant for editing.
+    os.chmod(root / "nixloom-control-ui.css", 0o644)
+    index = root / "index.html"
+    html = index.read_text(encoding="utf-8")
+    if "nixloom-control-ui.css" not in html:
+        html = html.replace(
+            '<link rel="manifest" href="./manifest.webmanifest" />',
+            '<link rel="manifest" href="./manifest.webmanifest" />\n'
+            '<link rel="stylesheet" href="./nixloom-control-ui.css" />',
+        )
+        index.write_text(html, encoding="utf-8")
 
 
 def _sync_plugin_path(plugin_path: Path | None, suffix: str) -> None:
@@ -377,8 +393,11 @@ def prepare(config: Config, paths: RuntimePaths) -> None:
     )
     control_ui_src = os.environ.get("NIXLOOM_OPENCLAW_CONTROL_UI_SRC", "").strip()
     control_ui_root = os.environ.get("NIXLOOM_OPENCLAW_CONTROL_UI_ROOT", "").strip()
-    if control_ui_src and control_ui_root:
-        _sync_control_ui(Path(control_ui_src), Path(control_ui_root))
+    control_ui_css = os.environ.get("NIXLOOM_OPENCLAW_CONTROL_UI_CSS", "").strip()
+    if control_ui_src and control_ui_root and control_ui_css:
+        _sync_control_ui(
+            Path(control_ui_src), Path(control_ui_root), Path(control_ui_css)
+        )
     reconcile_settings(config)
 
 

@@ -64,22 +64,13 @@ let
   # an earlier override pinning a different pnpmDepsHash is gone because it went
   # stale when nixpkgs-unstable moved and only surfaced on the first rebuild.
   #
-  # The Control UI polish layer lives outside the OpenClaw source tree as a
-  # CSS file injected into the package's own bundled dist/control-ui at build
-  # time.  The Gateway serves that bundled root on its package-proven path
-  # (rejectHardlinks is disabled for it), so no fork or Vite rebuild is needed
-  # and the Nix store's hard-link dedup does not break serving.
-  openclaw = pkgs.openclaw.overrideAttrs (old: {
-    postInstall = (old.postInstall or "") + ''
-      controlUi="$out/lib/openclaw/dist/control-ui"
-      substituteInPlace "$controlUi/index.html" \
-        --replace-fail \
-          '<link rel="manifest" href="./manifest.webmanifest" />' \
-          '<link rel="manifest" href="./manifest.webmanifest" />
-      <link rel="stylesheet" href="./nixloom-control-ui.css" />'
-      cp ${./openclaw-control-ui.css} "$controlUi/nixloom-control-ui.css"
-    '';
-  });
+  # The Control UI polish layer is intentionally NOT injected into the package.
+  # nixloom serves the UI from a mutable state-dir copy (see
+  # nixloom.openclaw._sync_control_ui), so this package stays a pristine
+  # nixpkgs build and the (slow) pnpm rebuild never fires on a CSS change; the
+  # runtime below just carries the CSS file for prepare() to mirror alongside
+  # dist/control-ui.
+  openclaw = pkgs.openclaw;
 
   openclawRuntime = pkgs.symlinkJoin {
     name = "nixloom-openclaw-runtime";
@@ -90,6 +81,7 @@ let
       ln -s ${openclaw}/lib/openclaw \
         "$out/share/nixloom/openclaw-plugin-yuanbao/node_modules/openclaw"
       ln -s ${tavily} "$out/share/nixloom/openclaw-plugin-tavily"
+      cp ${./openclaw-control-ui.css} "$out/share/nixloom/openclaw-control-ui.css"
     '';
   };
 

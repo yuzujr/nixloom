@@ -12,6 +12,7 @@ from nixloom.openclaw import (
     YUANBAO_SECRET_SETTINGS,
     YUANBAO_SETTINGS,
     _set_batch,
+    _sync_control_ui,
     _unset_paths,
     managed_settings,
     reconcile_settings,
@@ -53,6 +54,30 @@ class OpenClawTests(unittest.TestCase):
             settings["gateway.controlUi.root"],
             "/home/yuzujr/.local/state/nixloom/.openclaw/control-ui",
         )
+
+    def test_sync_control_ui_copies_ui_and_injects_css(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            src = Path(temporary) / "src"
+            src.mkdir()
+            (src / "index.html").write_text(
+                '<link rel="manifest" href="./manifest.webmanifest" />\n',
+                encoding="utf-8",
+            )
+            (src / "app.js").write_text("app", encoding="utf-8")
+            # Mirror the Nix store's read-only source layout.
+            os.chmod(src, 0o555)
+            for f in (src / "index.html", src / "app.js"):
+                os.chmod(f, 0o444)
+            css = Path(temporary) / "style.css"
+            css.write_text("body{}", encoding="utf-8")
+            root = Path(temporary) / "root"
+            _sync_control_ui(src, root, css)
+            html = (root / "index.html").read_text(encoding="utf-8")
+            self.assertIn("./nixloom-control-ui.css", html)
+            self.assertEqual(
+                (root / "nixloom-control-ui.css").read_text(encoding="utf-8"), "body{}"
+            )
+            self.assertEqual((root / "app.js").stat().st_nlink, 1)
 
     def test_tavily_provider_is_configured_when_key_exists(self) -> None:
         self.config.value["credentials"]["tavily_api_key"] = "tvly-test"

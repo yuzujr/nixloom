@@ -35,6 +35,7 @@ let
     "NIXLOOM_OPENCLAW_TAVILY_PLUGIN_PATH=${module.package}/share/nixloom/openclaw-plugin-tavily"
     "NIXLOOM_OPENCLAW_CONTROL_UI_ROOT=${stateDir}/.openclaw/control-ui"
     "NIXLOOM_OPENCLAW_CONTROL_UI_SRC=${module.package}/lib/openclaw/dist/control-ui"
+    "NIXLOOM_OPENCLAW_CONTROL_UI_CSS=${module.package}/share/nixloom/openclaw-control-ui.css"
   ];
   launcher = pkgs.writeShellScript "nixloom-openclaw" ''
     set -eu
