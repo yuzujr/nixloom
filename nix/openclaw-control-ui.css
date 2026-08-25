@@ -18,14 +18,18 @@
 
 /* ============================= Mobile ============================= */
 @media (width <= 768px) {
-  /* ---------- 1. Header: one compact row  ☰  agent › view  ⋯ ---------- */
+  /* ---------- 1. Header: ☰ + agent name only, no search / ⋯ ---------- */
   .topbar {
     min-height: 48px;
-    padding-inline: 6px;
+    padding: 4px 6px;
+    border-bottom: none;
+    background: transparent;
+    -webkit-backdrop-filter: none;
+    backdrop-filter: none;
   }
 
   .topnav-shell {
-    min-height: 48px;
+    min-height: 40px;
     gap: 6px;
   }
 
@@ -40,57 +44,35 @@
     border-radius: 8px;
   }
 
-  /* Breadcrumb collapses to "agent › current view", one line. */
-  .topnav-shell .dashboard-header__breadcrumb-link {
+  /* Breadcrumb reduces to the agent name only. */
+  .topnav-shell .dashboard-header__breadcrumb-link,
+  .topnav-shell .dashboard-header__breadcrumb-sep,
+  .topnav-shell .dashboard-header__breadcrumb-current {
     display: none;
   }
 
   .topnav-shell .dashboard-header__breadcrumb {
     min-width: 0;
-    gap: 4px;
-    font-size: 13px;
-    font-weight: 600;
+    font-size: 15px;
+    font-weight: 650;
+    letter-spacing: 0.01em;
   }
 
-  .topnav-shell .dashboard-header__breadcrumb-context,
-  .topnav-shell .dashboard-header__breadcrumb-current {
-    max-width: 30vw;
+  .topnav-shell .dashboard-header__breadcrumb-context {
+    display: block;
+    max-width: 55vw;
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
   }
 
-  .topnav-shell .dashboard-header__breadcrumb-sep {
-    opacity: 0.5;
-  }
-
-  /* Search stays functional but becomes a compact "⋯".  The base sets
-   * flex:1 on mobile, which is what inflated it into a full-width pill. */
-  .topbar-search {
-    flex: 0 0 auto;
-    min-width: 32px;
-    width: 32px;
-    height: 32px;
-    padding: 0;
-    justify-content: center;
-    border: none;
-    background: transparent;
-    font-size: 0;
-  }
-
+  /* Search, its shortcut hint, and ⋯ are not wanted on the phone (category C). */
+  .topbar-search,
   .topbar-search__label,
   .topbar-search__kbd {
     display: none;
   }
 
-  .topbar-search::before {
-    content: "⋯";
-    color: currentColor;
-    font-size: 22px;
-    line-height: 1;
-  }
-
-  /* Theme mode is a desktop control; the phone header keeps only ⋯. */
   .topbar-theme-mode {
     display: none;
   }
@@ -121,7 +103,7 @@
 
   /* Assistant content reads as plain conversation, not dashboard cards. */
   .chat-group:not(.user) .chat-bubble {
-    padding: 4px 2px;
+    padding: 4px 2px 2px;
     border: none;
     background: transparent;
     border-radius: 10px;
@@ -135,8 +117,8 @@
   /* ---------- 3. Metadata: small, dim, context = icon ---------- */
   .chat-group-footer {
     gap: 3px 6px;
-    margin-top: 1px;
-    opacity: 0.55;
+    margin-top: 0;
+    opacity: 0.5;
     font-size: 10px;
   }
 
@@ -178,8 +160,8 @@
     position: static;
     order: 2;
     gap: 2px;
-    margin-top: 2px;
-    opacity: 0.35;
+    margin-top: 1px;
+    opacity: 0.25;
   }
 
   .chat-bubble-actions .chat-copy-btn,
@@ -236,16 +218,24 @@
     font-size: 11px;
   }
 
-  /* ---------- 7/8. Composer: two compact rows ---------- */
+  /* ---------- 7/8. Composer: two explicit layers ----------
+   * Row 1 (main): the textarea with the send button pinned to its right.
+   * Row 2 (secondary): "+" (collects low-frequency actions) then the model
+   * label.  The send position is fixed, not left to flex-wrap. */
   .agent-chat__input {
+    position: relative;
     margin-inline: 6px;
     margin-bottom: max(6px, var(--safe-area-bottom, 0px));
   }
 
-  /* Context usage no longer owns a row; it is one tap away in the model
-   * popover and the per-message Context metadata. */
+  /* Context usage no longer owns a row; it is one tap away in the "+" sheet
+   * and the per-message Context metadata. */
   .agent-chat__composer-status-stack {
     display: none;
+  }
+
+  .agent-chat__composer-combobox {
+    padding-right: 52px; /* keep text clear of the send button */
   }
 
   .agent-chat__composer-combobox > textarea {
@@ -254,44 +244,86 @@
     padding: 12px 12px 6px;
   }
 
-  .agent-chat__toolbar {
-    flex-wrap: nowrap;
-    align-items: center;
-    gap: 4px;
-    padding: 4px 6px 6px;
-  }
-
-  .agent-chat__toolbar-left,
+  /* Send stays on the textarea row's right whatever the second row does. */
   .agent-chat__toolbar-right {
+    position: absolute;
+    top: 6px;
+    right: 6px;
+    z-index: 2;
     flex: 0 0 auto;
   }
 
-  .agent-chat__composer-controls .chat-controls__quota,
+  .agent-chat__toolbar-right .btn--ghost {
+    display: none; /* new session / export are not part of the phone row */
+  }
+
+  /* Row 2: [+] [model label] */
+  .agent-chat__toolbar {
+    display: flex;
+    flex-wrap: nowrap;
+    align-items: center;
+    gap: 6px;
+    padding: 4px 8px 8px;
+  }
+
+  .agent-chat__toolbar-left {
+    flex: 0 0 auto;
+  }
+
+  .agent-chat__composer-controls {
+    flex: 1 1 auto;
+    min-width: 0;
+    gap: 6px;
+  }
+
+  /* Low-frequency actions leave the row; the "+" sheet re-triggers them
+   * (see the injected composer-more hook), so nothing is removed. */
+  .agent-chat__toolbar-left .agent-chat__input-btn:not(:first-child),
   .agent-chat__toolbar-left .agent-chat__control-label,
   .agent-chat__toolbar-left .agent-chat__token-count,
-  .agent-chat__toolbar-left .agent-chat__input-btn:not(:first-child),
-  .agent-chat__toolbar-right .btn--ghost {
+  .agent-chat__composer-controls .chat-controls__quota,
+  .chat-settings-chip,
+  .chat-settings-chip__text,
+  .chat-settings-chip__chevron {
     display: none;
   }
 
-  .agent-chat__input-btn,
+  /* "+" entry point. */
+  .agent-chat__toolbar-left .agent-chat__input-btn {
+    width: 30px;
+    min-width: 30px;
+    height: 30px;
+    padding: 0;
+    border: none;
+    background: transparent;
+  }
+
+  .agent-chat__toolbar-left .agent-chat__input-btn svg {
+    display: none;
+  }
+
+  .agent-chat__toolbar-left .agent-chat__input-btn::before {
+    content: "+";
+    font-size: 20px;
+    line-height: 1;
+  }
+
   .chat-send-btn {
     width: 32px;
     min-width: 32px;
     height: 32px;
   }
 
-  .agent-chat__input-btn svg,
   .chat-send-btn svg {
     width: 16px;
     height: 16px;
   }
 
-  /* Model picker reads as a small inline label, not a full select. */
+  /* Model picker reads as a small inline label filling the row. */
   .chat-composer-model-control {
-    flex: 0 1 auto;
+    flex: 1 1 auto;
     min-width: 0;
-    max-width: 140px;
+    max-width: none;
   }
 
   .chat-composer-model-control .chat-controls__inline-select-trigger {
@@ -305,20 +337,6 @@
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
-  }
-
-  .chat-settings-chip {
-    width: 28px;
-    min-width: 28px;
-    height: 28px;
-    min-height: 28px;
-    padding: 0 4px;
-    border-radius: 8px;
-  }
-
-  .chat-settings-chip__text,
-  .chat-settings-chip__chevron {
-    display: none;
   }
 }
 

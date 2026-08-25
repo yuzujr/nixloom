@@ -295,6 +295,64 @@ def _sync_control_ui(src: Path, root: Path, css: Path) -> None:
             "</head>",
             '<link rel="stylesheet" href="./nixloom-control-ui.css" />\n</head>',
         )
+    # Mobile "+" entry point: a bottom sheet that re-triggers the existing
+    # low-frequency composer actions (attach / voice / settings / context),
+    # which are hidden from the compact two-row layout but never removed.
+    # The sheet lives outside the Lit-rendered subtree and is wired via
+    # document-level delegation, so re-renders cannot drop it.
+    if "<!-- nixloom:composer-more -->" not in html:
+        html = html.replace(
+            "</body>",
+            '<!-- nixloom:composer-more -->\n'
+            '<script>\n'
+            '  (function () {\n'
+            '    if (window.innerWidth > 768) return;\n'
+            '    var ITEMS = [\n'
+            '      { label: "Attach file", icon: "\\uD83D\\uDCCE", sel: ".agent-chat__file-input" },\n'
+            '      { label: "Voice", icon: "\\uD83C\\uDF99", sel: ".agent-chat__toolbar-left .agent-chat__input-btn:nth-of-type(2)" },\n'
+            '      { label: "Session settings", icon: "\\u2699\\uFE0F", sel: ".chat-settings-chip" },\n'
+            '      { label: "Context", icon: "\\u25CE", sel: ".chat-controls__quota" }\n'
+            '    ];\n'
+            '    var SHEET = null, BACKDROP = null;\n'
+            '    function trigger(item) { var el = document.querySelector(item.sel); if (el) el.click(); }\n'
+            '    function close() {\n'
+            '      if (SHEET) SHEET.style.transform = "translateY(110%)";\n'
+            '      if (BACKDROP) BACKDROP.style.opacity = "0";\n'
+            '      setTimeout(function () { if (BACKDROP) BACKDROP.style.display = "none"; }, 200);\n'
+            '    }\n'
+            '    function ensure() {\n'
+            '      if (SHEET) return;\n'
+            '      BACKDROP = document.createElement("div");\n'
+            '      BACKDROP.style.cssText = "position:fixed;inset:0;z-index:9998;background:rgba(0,0,0,.45);opacity:0;transition:opacity .18s ease;display:none;";\n'
+            '      BACKDROP.addEventListener("click", close);\n'
+            '      document.body.appendChild(BACKDROP);\n'
+            '      SHEET = document.createElement("div");\n'
+            '      SHEET.id = "nixloom-composer-more";\n'
+            '      SHEET.setAttribute("role", "menu");\n'
+            '      SHEET.style.cssText = "position:fixed;left:0;right:0;bottom:0;z-index:9999;box-sizing:border-box;background:var(--card,#161b22);border-top:1px solid var(--border,#2a3038);border-radius:16px 16px 0 0;padding:6px 0 max(10px,env(safe-area-inset-bottom));transform:translateY(110%);transition:transform .18s ease;box-shadow:0 -8px 40px rgba(0,0,0,.35);";\n'
+            '      ITEMS.forEach(function (item) {\n'
+            '        var b = document.createElement("button");\n'
+            '        b.type = "button";\n'
+            '        b.textContent = item.icon + "  " + item.label;\n'
+            '        b.style.cssText = "display:flex;width:100%;align-items:center;gap:10px;padding:13px 20px;font:inherit;font-size:15px;color:var(--text);background:none;border:none;text-align:left;cursor:pointer;";\n'
+            '        b.addEventListener("click", function () { close(); trigger(item); });\n'
+            '        SHEET.appendChild(b);\n'
+            '      });\n'
+            '      document.body.appendChild(SHEET);\n'
+            '    }\n'
+            '    function open() {\n'
+            '      ensure();\n'
+            '      if (BACKDROP) { BACKDROP.style.display = "block"; requestAnimationFrame(function () { BACKDROP.style.opacity = "1"; }); }\n'
+            '      if (SHEET) requestAnimationFrame(function () { SHEET.style.transform = "translateY(0)"; });\n'
+            '    }\n'
+            '    document.addEventListener("click", function (e) {\n'
+            '      var t = e.target.closest ? e.target.closest(".agent-chat__toolbar-left .agent-chat__input-btn") : null;\n'
+            '      if (t) { e.preventDefault(); e.stopPropagation(); open(); }\n'
+            '    }, true);\n'
+            '  })();\n'
+            '</script>\n'
+            '</body>',
+        )
     # Mobile metadata: collapse message timestamps to a bare time for today's
     # messages (the full date stays in the <time> title).  Pure CSS cannot
     # re-format text content, so this tiny hook re-writes the label on load
