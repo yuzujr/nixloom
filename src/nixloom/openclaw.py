@@ -30,6 +30,12 @@ TAVILY_SETTINGS = (
     "plugins.entries.tavily.enabled",
     "tools.web.search.provider",
 )
+RETIRED_SETTINGS = (
+    # A Control UI device token is also the credential used by the HTTP
+    # attachment endpoint.  Leaving this emergency bypass enabled admits the
+    # WebSocket without issuing that token, so attachments cannot be read.
+    "gateway.controlUi.dangerouslyDisableDeviceAuth",
+)
 
 
 def _setting(path: str, value: Any) -> dict[str, Any]:
@@ -65,9 +71,13 @@ def managed_settings(config: Config) -> list[dict[str, Any]]:
         _setting("gateway.port", config.integer("ports.openclaw", minimum=1)),
         _setting("gateway.bind", "loopback"),
         _setting("gateway.tailscale.mode", "serve"),
+        # Tailscale Serve reaches the loopback-only gateway through its local
+        # reverse proxy.  Trust only that proxy so OpenClaw can recover the
+        # authenticated Tailscale client address for both WebSocket and HTTP
+        # media requests.
+        _setting("gateway.trustedProxies", ["127.0.0.1"]),
         _setting("gateway.controlUi.enabled", True),
         _setting("gateway.controlUi.allowedOrigins", ["*"]),
-        _setting("gateway.controlUi.dangerouslyDisableDeviceAuth", True),
         _setting("gateway.auth.mode", "token"),
         _setting("models.mode", "merge"),
         _setting("models.providers.nixloom", provider),
@@ -208,7 +218,7 @@ def _unset_config_value(config: dict[str, Any], path: str) -> bool:
 
 def unmanaged_settings(config: Config) -> list[str]:
     """Return formerly managed paths that must converge to absence."""
-    paths: list[str] = []
+    paths: list[str] = list(RETIRED_SETTINGS)
     if not config.string("openclaw.workspace", ""):
         paths.append("agents.defaults.workspace")
     if not config.boolean("images.enabled"):

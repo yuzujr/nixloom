@@ -24,6 +24,7 @@ class RuntimeTests(unittest.TestCase):
         self.assertEqual(command[0], "sd-server")
         self.assertIn("--lora-model-dir", command)
         self.assertIn("--prompt", command)
+        self.assertIn("--vae-tiling", command)
 
     def test_swap_exposes_one_chat_model_and_hidden_image_runtime(self) -> None:
         document = swap_document(self.config, self.paths)

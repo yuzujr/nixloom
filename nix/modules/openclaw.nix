@@ -18,6 +18,9 @@ let
     "OPENCLAW_STATE_DIR=${stateDir}/.openclaw"
     "OPENCLAW_CONFIG_PATH=${stateDir}/.openclaw/openclaw.json"
     "OPENCLAW_NIX_MODE=1"
+    # NixLoom owns local GPU scheduling and delivers media in the visible
+    # reply, so media tools must finish in the originating agent turn.
+    "NIXLOOM_OPENCLAW_SYNC_MEDIA=1"
     "NIXLOOM_OPENCLAW_PLUGIN_PATH=${module.package}/share/nixloom/openclaw-plugin-yuanbao"
     "NIXLOOM_OPENCLAW_TAVILY_PLUGIN_PATH=${module.package}/share/nixloom/openclaw-plugin-tavily"
     "PATH=${lib.makeBinPath [ module.package ]}:${hostPath}"
@@ -61,6 +64,7 @@ in
     home.packages = [ module.package ];
     home.sessionVariables.NIXLOOM_OPENCLAW_PLUGIN_PATH = "${module.package}/share/nixloom/openclaw-plugin-yuanbao";
     home.sessionVariables.NIXLOOM_OPENCLAW_TAVILY_PLUGIN_PATH = "${module.package}/share/nixloom/openclaw-plugin-tavily";
+    home.sessionVariables.NIXLOOM_OPENCLAW_SYNC_MEDIA = "1";
     home.activation.nixloomOpenClawConfig = lib.hm.dag.entryAfter [ "nixloomDirectories" ] ''
       run env ${prepareEnvironment} ${cfg.package}/bin/nixloom __service openclaw --prepare-only
     '';

@@ -148,6 +148,10 @@ def image_command(
         )
     if config.boolean("images.flash_attention"):
         command.append("--diffusion-fa")
+    # SDXL's full-frame VAE decode needs a multi-gigabyte temporary CUDA
+    # buffer at 1024x1024.  Tile that decode so the peak scales with the tile,
+    # not the whole image.
+    command.append("--vae-tiling")
     if config.boolean("images.offload_to_cpu", False):
         command.append("--offload-to-cpu")
     if not name:

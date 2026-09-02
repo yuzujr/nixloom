@@ -231,7 +231,7 @@ def _image_bytes(response: dict[str, Any]) -> bytes:
     return image
 
 
-def _test_openclaw_agent(paths: RuntimePaths) -> None:
+def _test_openclaw_agent(config: Config, paths: RuntimePaths) -> None:
     installed = (
         subprocess.run(
             ["systemctl", "--user", "cat", "nixloom-openclaw.service"],
@@ -254,6 +254,10 @@ def _test_openclaw_agent(paths: RuntimePaths) -> None:
             "OPENCLAW_STATE_DIR": str(config_path.parent),
             "OPENCLAW_CONFIG_PATH": str(config_path),
             "OPENCLAW_GATEWAY_TOKEN": token_path.read_text(encoding="utf-8").strip(),
+            # The managed config can include packaged OpenClaw plugins.  The
+            # CLI must use the same Nix-mode loading semantics as the Gateway.
+            "OPENCLAW_NIX_MODE": "1",
+            "NIXLOOM_OPENCLAW_SYNC_MEDIA": "1",
         }
     )
     try:
@@ -265,6 +269,12 @@ def _test_openclaw_agent(paths: RuntimePaths) -> None:
                 "main",
                 "--session-id",
                 "nixloom-regression",
+                # A model override makes the OpenClaw CLI use its trusted
+                # backend Gateway client identity.  Without it the CLI may
+                # fail device pairing and silently use an embedded agent,
+                # which would not exercise the running Gateway at all.
+                "--model",
+                f"nixloom/{config.string('llm.id')}",
                 "--message",
                 "Use a shell tool to run printf NIXLOOM_AGENT_TOOL_OK, then reply with exactly that stdout.",
                 "--thinking",
@@ -290,6 +300,11 @@ def _test_openclaw_agent(paths: RuntimePaths) -> None:
         raise ConfigError(
             "OpenClaw agent regression returned an unexpected response"
         ) from error
+    if details.get("transport") == "embedded" or details.get("fallbackFrom"):
+        raise ConfigError(
+            "OpenClaw agent regression used an embedded fallback instead of "
+            "the running Gateway"
+        )
     if visible != "NIXLOOM_AGENT_TOOL_OK":
         raise ConfigError(
             f"OpenClaw agent regression returned unexpected text: {visible!r}"
@@ -400,7 +415,7 @@ def live_test(
             )
         print("ok  swap-back")
     if not skip_agent:
-        _test_openclaw_agent(paths)
+        _test_openclaw_agent(config, paths)
 
 
 def systemctl(*arguments: str, check: bool = True) -> subprocess.CompletedProcess[str]:

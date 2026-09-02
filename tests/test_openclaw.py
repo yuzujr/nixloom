@@ -37,6 +37,8 @@ class OpenClawTests(unittest.TestCase):
         self.assertIn("agents.defaults.imageGenerationModel", settings)
         self.assertEqual(settings["gateway.bind"], "loopback")
         self.assertEqual(settings["gateway.tailscale.mode"], "serve")
+        self.assertEqual(settings["gateway.trustedProxies"], ["127.0.0.1"])
+        self.assertNotIn("gateway.controlUi.dangerouslyDisableDeviceAuth", settings)
         self.assertTrue(settings["tools.loopDetection.enabled"])
         self.assertTrue(
             settings["tools.web.fetch.ssrfPolicy.allowRfc2544BenchmarkRange"]
@@ -134,6 +136,7 @@ class OpenClawTests(unittest.TestCase):
         self.config.value["openclaw"]["workspace"] = ""
         self.config.value["openclaw"]["yuanbao"] = False
         expected_unsets = [
+            "gateway.controlUi.dangerouslyDisableDeviceAuth",
             "agents.defaults.workspace",
             *IMAGE_SETTINGS,
         ]
