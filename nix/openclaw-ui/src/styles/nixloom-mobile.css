@@ -27,7 +27,7 @@
    * treatment around the navigation affordance. */
   .shell,
   .shell--nav-collapsed {
-    --shell-mobile-nav-width: 60vw;
+    --shell-mobile-nav-width: min(84vw, 320px);
     grid-template-areas:
       "topbar"
       "content";
