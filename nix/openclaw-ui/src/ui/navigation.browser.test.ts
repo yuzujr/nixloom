@@ -633,7 +633,7 @@ describe("control UI routing", () => {
     expect(topbar.hasAttribute("inert")).toBe(false);
     expect(topbar.hasAttribute("aria-hidden")).toBe(false);
     expect(app.querySelector(".content-header")).toBeNull();
-    expect(app.querySelector(".sidebar-session-select")).toBeNull();
+    expectElement(app, ".sidebar-session-select", HTMLElement);
 
     app.setTab("channels");
 

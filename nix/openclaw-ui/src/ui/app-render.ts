@@ -31,6 +31,7 @@ import { hasOperatorAdminAccess, hasOperatorWriteAccess, warnQueryToken } from "
 import type { AppViewState } from "./app-view-state.ts";
 import { reconcileChatRunLifecycle } from "./chat/run-lifecycle.ts";
 import {
+  renderChatSessionSelect,
   resolveChatAgentFilterId,
   resolveChatAgentFilterOptions,
   resolvePreferredSessionForAgent,
@@ -156,7 +157,6 @@ import { captureSessionToWorkboard, getWorkboardState } from "./controllers/work
 import { getCronJobPayload } from "./cron-payload.ts";
 import { buildExternalLinkRel, EXTERNAL_LINK_TARGET } from "./external-link.ts";
 import { formatTimeMs } from "./format.ts";
-import { formatRelativeTimestamp } from "./format.ts";
 import { icons } from "./icons.ts";
 import { createLazyView, renderLazyView } from "./lazy-view.ts";
 import {
@@ -171,11 +171,8 @@ import {
   type Tab,
 } from "./navigation.ts";
 import { isPluginEnabledInConfigSnapshot } from "./plugin-activation.ts";
-import { isCronSessionKey, resolveSessionDisplayName } from "./session-display.ts";
 import {
   buildAgentMainSessionKey,
-  isSessionKeyTiedToAgent,
-  isSubagentSessionKey,
   normalizeAgentId,
   parseAgentSessionKey,
   resolveAgentIdFromSessionKey,
@@ -519,37 +516,8 @@ function resolveSidebarSelectedAgentId(state: AppViewState): string {
   return normalizeAgentId(fallbackAgentId);
 }
 
-function isSidebarSessionForSelectedAgent(
-  state: AppViewState,
-  row: GatewaySessionRow,
-  selectedAgentId: string,
-): boolean {
-  return isSessionKeyTiedToAgent(row.key, selectedAgentId, resolveSidebarDefaultAgentId(state));
-}
-
-function resolveSidebarRecentSessions(state: AppViewState): GatewaySessionRow[] {
-  const selectedAgentId = resolveSidebarSelectedAgentId(state);
-  const shouldFilterByAgent =
-    normalizeOptionalString(state.sessionKey)?.toLowerCase() !== "unknown";
-  return (state.sessionsResult?.sessions ?? [])
-    .filter(
-      (row) =>
-        !row.archived &&
-        row.kind !== "global" &&
-        row.kind !== "unknown" &&
-        row.kind !== "cron" &&
-        !isCronSessionKey(row.key) &&
-        !isSubagentSessionKey(row.key) &&
-        !row.spawnedBy &&
-        (!shouldFilterByAgent || isSidebarSessionForSelectedAgent(state, row, selectedAgentId)),
-    )
-    .toSorted((a, b) => (b.updatedAt ?? 0) - (a.updatedAt ?? 0))
-    .slice(0, 5);
-}
-
 function renderSidebarSessions(state: AppViewState, collapsed: boolean) {
   const busy = isSidebarSessionBusy(state);
-  const recent = collapsed ? [] : resolveSidebarRecentSessions(state);
   const newSessionDisabled = !state.connected || state.sessionsLoading || busy || !state.client;
   const newSessionTitle = !state.connected
     ? "Connect to create a new session"
@@ -581,63 +549,14 @@ function renderSidebarSessions(state: AppViewState, collapsed: boolean) {
               >${t("chat.runControls.newSession")}</span
             >`}
       </button>
-      ${collapsed || recent.length === 0
-        ? nothing
-        : html`
-            <div
-              class="sidebar-recent-sessions"
-              aria-label=${t("overview.cards.recentSessions")}
-            >
-              <div class="sidebar-recent-sessions__list">
-                ${recent.map((row) => renderSidebarRecentSession(state, row))}
-              </div>
-            </div>
-          `}
+      <div class="sidebar-session-select ${collapsed ? "sidebar-session-select--collapsed" : ""}">
+        ${renderChatSessionSelect(state, switchChatSession, {
+          compact: collapsed,
+          sessionSwitcherOnly: true,
+          surface: "sidebar",
+        })}
+      </div>
     </section>
-  `;
-}
-
-function renderSidebarRecentSession(state: AppViewState, row: GatewaySessionRow) {
-  const active = row.key === state.sessionKey;
-  const label = resolveSessionDisplayName(row.key, row);
-  const meta = row.updatedAt ? formatRelativeTimestamp(row.updatedAt) : "n/a";
-  const href = `${pathForTab("chat", state.basePath)}?session=${encodeURIComponent(row.key)}`;
-  return html`
-    <a
-      href=${href}
-      class="sidebar-recent-session ${active ? "sidebar-recent-session--active" : ""}"
-      data-session-key=${row.key}
-      title=${`${label} · ${row.key}`}
-      @click=${(event: MouseEvent) => {
-        if (
-          event.defaultPrevented ||
-          event.button !== 0 ||
-          event.metaKey ||
-          event.ctrlKey ||
-          event.shiftKey ||
-          event.altKey
-        ) {
-          return;
-        }
-        event.preventDefault();
-        if (row.key !== state.sessionKey) {
-          switchChatSession(state, row.key);
-        }
-        state.setTab("chat" as import("./navigation.ts").Tab);
-      }}
-    >
-      <span class="sidebar-recent-session__dot" aria-hidden="true"></span>
-      <span class="sidebar-recent-session__body">
-        <span class="sidebar-recent-session__name">${label}</span>
-        <span class="sidebar-recent-session__meta">${meta}</span>
-      </span>
-      ${row.hasActiveRun
-        ? html`<span
-            class="sidebar-recent-session__live"
-            aria-label=${t("sessions.sessionDetails.activeRun")}
-          ></span>`
-        : nothing}
-    </a>
   `;
 }
 

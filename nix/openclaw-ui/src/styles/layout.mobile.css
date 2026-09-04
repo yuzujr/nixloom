@@ -89,14 +89,15 @@
   }
 }
 
-/* Tablet and smaller: reveal the left nav by making room for it.  The panel
- * itself keeps a fixed internal width while its grid track expands, so its
- * contents never reflow or race ahead of the shell animation. */
+/* Tablet and smaller: reveal the left nav by moving the complete app canvas.
+ * The content column always stays viewport-width; it is never squeezed while
+ * the navigation track opens. */
 @media (max-width: 1100px) {
   .shell,
   .shell--nav-collapsed {
     --shell-mobile-nav-width: min(86vw, 320px);
-    grid-template-columns: 0 minmax(0, 1fr);
+    position: relative;
+    grid-template-columns: 0 100vw;
     grid-template-rows: var(--shell-topbar-height) minmax(0, 1fr);
     grid-template-areas:
       "nav topbar"
@@ -106,13 +107,13 @@
 
   .shell--nav-drawer-open,
   .shell--nav-collapsed.shell--nav-drawer-open {
-    grid-template-columns: var(--shell-mobile-nav-width) minmax(0, 1fr);
+    grid-template-columns: var(--shell-mobile-nav-width) 100vw;
   }
 
   .shell-nav,
   .shell--nav-collapsed .shell-nav {
     position: relative;
-    z-index: 10;
+    z-index: 70;
     width: 100%;
     min-width: 0;
     min-height: 0;
@@ -133,7 +134,24 @@
   }
 
   .shell-nav-backdrop {
-    display: none;
+    display: block;
+    position: absolute;
+    inset: 0 0 0 var(--shell-mobile-nav-width);
+    z-index: 65;
+    padding: 0;
+    border: 0;
+    background: transparent;
+    pointer-events: none;
+  }
+
+  .shell--nav-drawer-open .shell-nav-backdrop {
+    pointer-events: auto;
+  }
+
+  .topbar,
+  .content {
+    width: 100vw;
+    min-width: 100vw;
   }
 
   /* Show the hamburger toggle at the same breakpoint where the drawer takes over. */
@@ -291,6 +309,7 @@
   .shell {
     --shell-pad: 8px;
     --shell-gap: 8px;
+    --shell-mobile-nav-width: min(92vw, 320px);
   }
 
   /* Topbar */

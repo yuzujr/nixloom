@@ -313,6 +313,21 @@ describe("setTabFromRoute", () => {
     expect(root.style.colorScheme).toBe("light");
   });
 
+  it("keeps the PWA status bar on the active theme background", () => {
+    const meta = document.createElement("meta");
+    meta.name = "theme-color";
+    document.head.append(meta);
+
+    try {
+      const host = createHost("chat");
+      applyResolvedTheme(host, "dash-light");
+
+      expect(meta.content).toBe("#f7f2ec");
+    } finally {
+      meta.remove();
+    }
+  });
+
   it("applies imported custom light themes as light-mode tokens", () => {
     const root = {
       dataset: {} as DOMStringMap,

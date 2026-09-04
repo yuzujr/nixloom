@@ -600,12 +600,35 @@ export function applyResolvedTheme(host: SettingsHost, resolved: ResolvedTheme) 
   root.dataset.theme = resolved;
   root.dataset.themeMode = themeMode;
   root.style.colorScheme = themeMode;
-  const themeColor = themeMode === "light" ? "#f7f7f8" : "#101114";
+  const themeColor = resolveThemeBackgroundColor(root, resolved, themeMode);
   const meta =
     typeof document.querySelector === "function"
       ? document.querySelector<HTMLMetaElement>('meta[name="theme-color"]')
       : null;
   meta?.setAttribute("content", themeColor);
+}
+
+function resolveThemeBackgroundColor(
+  root: HTMLElement,
+  resolved: ResolvedTheme,
+  themeMode: "light" | "dark",
+): string {
+  if (typeof Element !== "undefined" && root instanceof Element) {
+    const cssBackground = globalThis.getComputedStyle?.(root).getPropertyValue("--bg").trim();
+    if (cssBackground) {
+      return cssBackground;
+    }
+  }
+
+  const builtInBackgrounds: Partial<Record<ResolvedTheme, string>> = {
+    dark: "#0e1015",
+    light: "#f8f9fa",
+    openknot: "#080808",
+    "openknot-light": "#f9f9fb",
+    dash: "#1a1210",
+    "dash-light": "#f7f2ec",
+  };
+  return builtInBackgrounds[resolved] ?? (themeMode === "light" ? "#f8f9fa" : "#0e1015");
 }
 
 function syncSystemThemeListener(host: SettingsHost) {
