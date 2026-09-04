@@ -71,7 +71,10 @@ in
         Wants = [ "nixloom-runtime.service" ];
         After = [ "nixloom-runtime.service" ];
         PartOf = [ "nixloom.target" ];
-        X-SwitchMethod = "keep-old";
+        # The gateway binary, packaged Control UI, and prepared config must
+        # advance together.  Keeping the old process would serve new static
+        # assets against an old gateway closure after a Home Manager switch.
+        X-SwitchMethod = "restart";
       };
       Service = {
         ExecStart = launcher;
