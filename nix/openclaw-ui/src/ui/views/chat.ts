@@ -202,7 +202,6 @@ export type ChatProps = {
   onChatScroll?: (event: Event) => void;
   basePath?: string;
   composerControls?: TemplateResult | typeof nothing | ReturnType<typeof guard>;
-  onOpenChatSettings?: () => void;
   sessionWorkspace?: {
     collapsed: boolean;
     sessionKey: string;
@@ -527,6 +526,8 @@ interface ChatEphemeralState {
   composerComposing: boolean;
   composerInputIntentKey: string | null;
   composerActionsOpen: boolean;
+  composerActionsPending: boolean;
+  composerActionsOpenFrame: number | null;
   composerContextOpen: boolean;
   composerActionsTrigger: HTMLElement | null;
   pendingClearedSubmittedDraft: PendingClearedSubmittedDraft | null;
@@ -559,6 +560,8 @@ function createChatEphemeralState(): ChatEphemeralState {
     composerComposing: false,
     composerInputIntentKey: null,
     composerActionsOpen: false,
+    composerActionsPending: false,
+    composerActionsOpenFrame: null,
     composerContextOpen: false,
     composerActionsTrigger: null,
     pendingClearedSubmittedDraft: null,
@@ -909,18 +912,35 @@ function setComposerActionsOpen(
 ): void {
   if (open) {
     vs.composerActionsTrigger = options.trigger ?? vs.composerActionsTrigger;
-    vs.composerActionsOpen = true;
+    if (vs.composerActionsOpenFrame !== null) {
+      cancelAnimationFrame(vs.composerActionsOpenFrame);
+    }
+    // A mobile browser may still be finishing the source button's touch/click
+    // sequence when this handler runs.  Mount on the next frame so a newly
+    // inserted action can never receive that same gesture.
+    vs.composerActionsPending = true;
     requestUpdate();
-    requestAnimationFrame(() => {
-      document.querySelector<HTMLButtonElement>(".nixloom-composer-actions__item")?.focus({
-        preventScroll: true,
+    vs.composerActionsOpenFrame = requestAnimationFrame(() => {
+      vs.composerActionsOpenFrame = null;
+      vs.composerActionsPending = false;
+      vs.composerActionsOpen = true;
+      requestUpdate();
+      requestAnimationFrame(() => {
+        document.querySelector<HTMLButtonElement>(".nixloom-composer-actions__item")?.focus({
+          preventScroll: true,
+        });
       });
     });
     return;
   }
 
+  if (vs.composerActionsOpenFrame !== null) {
+    cancelAnimationFrame(vs.composerActionsOpenFrame);
+    vs.composerActionsOpenFrame = null;
+  }
   const trigger = options.restoreFocus ? vs.composerActionsTrigger : null;
   vs.composerActionsOpen = false;
+  vs.composerActionsPending = false;
   vs.composerActionsTrigger = null;
   requestUpdate();
   if (trigger?.isConnected) {
@@ -1042,18 +1062,6 @@ function renderComposerActions(
         <span class="nixloom-composer-actions__icon" aria-hidden="true">◎</span>
         <span>Session context</span>
       </button>
-      ${props.onOpenChatSettings
-        ? html`
-            <button
-              class="nixloom-composer-actions__item"
-              type="button"
-              @click=${() => run(() => props.onOpenChatSettings?.())}
-            >
-              <span class="nixloom-composer-actions__icon" aria-hidden="true">${icons.settings}</span>
-              <span>${t("chat.settings")}</span>
-            </button>
-          `
-        : nothing}
     </section>
   `;
 }
@@ -2804,17 +2812,22 @@ export function renderChat(props: ChatProps) {
             class="nixloom-composer-actions-trigger"
             type="button"
             aria-label="More message actions"
-            aria-expanded=${vs.composerActionsOpen}
+            aria-expanded=${vs.composerActionsOpen || vs.composerActionsPending}
             aria-controls="nixloom-composer-actions"
             ?disabled=${!props.connected}
             @click=${(event: MouseEvent) => {
               event.stopPropagation();
+              event.preventDefault();
               if (!(event.currentTarget instanceof HTMLElement)) {
                 return;
               }
-              setComposerActionsOpen(!vs.composerActionsOpen, requestUpdate, {
+              setComposerActionsOpen(
+                !(vs.composerActionsOpen || vs.composerActionsPending),
+                requestUpdate,
+                {
                 trigger: event.currentTarget,
-              });
+                },
+              );
             }}
           >
             +

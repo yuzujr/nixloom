@@ -94,7 +94,7 @@ export function resolveAssistantAttachmentAuthToken(
 }
 
 export function resolveDashboardHeaderContext(
-  state: Pick<AppViewState, "agentsList" | "sessionKey">,
+  state: Pick<AppViewState, "agentsList" | "assistantName" | "sessionKey">,
 ): { agentLabel: string } {
   const agentId = resolveAgentIdFromSessionKey(state.sessionKey);
   const agent = state.agentsList?.agents.find(
@@ -103,6 +103,7 @@ export function resolveDashboardHeaderContext(
   const agentLabel =
     normalizeOptionalString(agent?.identity?.name) ??
     normalizeOptionalString(agent?.name) ??
+    normalizeOptionalString(state.assistantName) ??
     agentId;
   return { agentLabel };
 }

@@ -4,6 +4,14 @@
   source,
 }:
 let
+  uiSource = lib.fileset.toSource {
+    root = ./.;
+    fileset = ./openclaw-ui;
+  };
+  # Include the complete owned UI source in the service worker version.  A
+  # package version alone is insufficient because NixLoom can update its UI
+  # independently of the pinned OpenClaw gateway release.
+  openclawUiBuildId = "nixloom-${pkgs.openclaw.version}-${builtins.substring 0 16 (builtins.baseNameOf uiSource)}";
   nixloom = pkgs.python3Packages.buildPythonApplication {
     pname = "nixloom";
     version = "0.2.0";
@@ -121,7 +129,7 @@ let
     doCheck = true;
     postPatch = ''
       rm -rf ui
-      cp -r ${./openclaw-ui} ui
+      cp -r ${uiSource}/openclaw-ui ui
       chmod -R u+w ui
       # The packaged gateway already contains the exact dependency closure
       # with which it was built.  Reusing it avoids fetching every optional
@@ -133,7 +141,7 @@ let
       runHook preBuild
 
       cd ui
-      OPENCLAW_CONTROL_UI_BUILD_ID="nixloom-${pkgs.openclaw.version}" \
+      OPENCLAW_CONTROL_UI_BUILD_ID="${openclawUiBuildId}" \
         node ../node_modules/vite/bin/vite.js build --config vite.config.ts
 
       runHook postBuild
@@ -143,7 +151,8 @@ let
 
       cd "$NIX_BUILD_TOP/$sourceRoot/ui"
       node ../node_modules/vitest/vitest.mjs run --config vitest.config.ts \
-        src/ui/chat/grouped-render.test.ts
+        src/ui/chat/grouped-render.test.ts \
+        src/ui/app-render.helpers.node.test.ts
 
       runHook postCheck
     '';

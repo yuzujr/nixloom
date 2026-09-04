@@ -537,6 +537,16 @@ describe("resolveDashboardHeaderContext", () => {
       } as unknown as AppViewState),
     ).toEqual({ agentLabel: "beta" });
   });
+
+  it("uses the assistant identity instead of the raw main session key", () => {
+    expect(
+      resolveDashboardHeaderContext({
+        assistantName: "OZY",
+        sessionKey: "main",
+        agentsList: { defaultId: "main", mainKey: "main", scope: "user", agents: [] },
+      } as unknown as AppViewState),
+    ).toEqual({ agentLabel: "OZY" });
+  });
 });
 
 describe("isCronSessionKey", () => {

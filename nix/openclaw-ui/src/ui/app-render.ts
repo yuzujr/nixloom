@@ -3792,7 +3792,6 @@ export function renderApp(state: AppViewState) {
                   onDismissRealtimeTalkError: () => dismissRealtimeTalkError(state),
                   sessions: state.sessionsResult,
                   composerControls: renderGuardedChatControls(state),
-                  onOpenChatSettings: () => state.setChatMobileControlsOpen(true),
                   sessionWorkspace: {
                     collapsed: chatWorkspaceFiles.collapsed,
                     sessionKey: state.sessionKey,

@@ -5,6 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
     <title>OpenClaw Control</title>
     <meta name="color-scheme" content="dark light" />
+    <meta name="theme-color" content="#f7f7f8" />
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
     <link rel="icon" type="image/png" sizes="32x32" href="/favicon-32.png" />
     <link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png" />
@@ -21,6 +22,10 @@
           clawdash: "dash:light",
           system: "claw:system",
         };
+        var setThemeColor = function (mode) {
+          var meta = document.querySelector('meta[name="theme-color"]');
+          if (meta) meta.setAttribute("content", mode === "light" ? "#f7f7f8" : "#101114");
+        };
         try {
           var keys = Object.keys(localStorage);
           var raw;
@@ -30,7 +35,10 @@
               if (raw) break;
             }
           }
-          if (!raw) return;
+          if (!raw) {
+            setThemeColor(window.matchMedia("(prefers-color-scheme: light)").matches ? "light" : "dark");
+            return;
+          }
           var s = JSON.parse(raw);
           var t = s && s.theme;
           var m = s && s.themeMode;
@@ -59,6 +67,7 @@
             "data-theme-mode",
             resolved.includes("light") ? "light" : "dark",
           );
+          setThemeColor(resolved.includes("light") ? "light" : "dark");
         } catch (e) {}
       })();
     </script>
