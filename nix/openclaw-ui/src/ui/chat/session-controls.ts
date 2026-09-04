@@ -249,7 +249,6 @@ function openChatSessionPicker(state: AppViewState, surface: ChatSessionSelectSu
     void loadChatSessionPickerPage(state);
   }
   requestHostUpdate(state);
-  focusChatSessionPickerSearch(state);
 }
 
 function closeChatSessionPicker(state: AppViewState) {
@@ -1181,38 +1180,31 @@ function renderChatModelReasoningSelect(params: {
             (entry) => {
               const selected = entry.value === selectedModelValue;
               return html`
-                <div class="chat-controls__combined-model">
-                  <button
-                    class="chat-controls__inline-select-option chat-controls__combined-model-option ${selected
-                      ? "chat-controls__inline-select-option--selected"
-                      : ""}"
-                    data-chat-model-option=${entry.value}
-                    role="option"
-                    aria-selected=${selected ? "true" : "false"}
-                    type="button"
-                    ?disabled=${disabled}
-                    @click=${async (event: MouseEvent) => {
-                      if (disabled || selected) {
-                        event.preventDefault();
-                        return;
-                      }
-                      (event.currentTarget as HTMLElement)
-                        .closest("details")
-                        ?.removeAttribute("open");
-                      await onModelSelect(entry.value);
-                    }}
-                  >
-                    <span>${formatCombinedPickerModelOptionLabel(entry, selected)}</span>
-                    ${selected
-                      ? html`<span
-                          class="chat-controls__inline-select-check chat-controls__combined-model-arrow"
-                          aria-hidden="true"
-                        >
-                          ${icons.chevronDown}
-                        </span>`
-                      : ""}
-                  </button>
-                </div>
+                <button
+                  class="chat-controls__inline-select-option chat-controls__combined-model-option ${selected
+                    ? "chat-controls__inline-select-option--selected"
+                    : ""}"
+                  data-chat-model-option=${entry.value}
+                  role="option"
+                  aria-selected=${selected ? "true" : "false"}
+                  type="button"
+                  ?disabled=${disabled}
+                  @click=${async (event: MouseEvent) => {
+                    if (disabled || selected) {
+                      event.preventDefault();
+                      return;
+                    }
+                    (event.currentTarget as HTMLElement).closest("details")?.removeAttribute("open");
+                    await onModelSelect(entry.value);
+                  }}
+                >
+                  <span>${formatCombinedPickerModelOptionLabel(entry, selected)}</span>
+                  ${selected
+                    ? html`<span class="chat-controls__inline-select-check" aria-hidden="true">
+                        ${icons.check}
+                      </span>`
+                    : ""}
+                </button>
               `;
             },
           )}

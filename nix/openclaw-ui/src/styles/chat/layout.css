@@ -2230,16 +2230,15 @@
 
 .chat-controls__inline-select-menu--combined {
   width: max(100%, min(320px, calc(100vw - 32px)));
-  max-height: none;
-  overflow: visible;
+  max-height: min(64dvh, 540px);
+  overflow-y: auto;
+  overscroll-behavior: contain;
 }
 
 .chat-controls__combined-model-list {
   display: grid;
   gap: 2px;
-  max-height: min(376px, calc(100vh - 164px));
-  overflow-y: auto;
-  padding-right: 2px;
+  min-width: 0;
 }
 
 .chat-controls__inline-select-section-label {
@@ -2251,45 +2250,14 @@
   text-transform: uppercase;
 }
 
-.chat-controls__combined-model {
-  position: relative;
-  display: block;
-}
-
-.chat-controls__combined-model-arrow svg {
-  transform: rotate(-90deg);
-}
-
 .chat-controls__reasoning-panel {
-  position: absolute;
-  bottom: 0;
-  left: calc(100% + 8px);
-  z-index: 90;
+  position: static;
   display: grid;
   gap: 6px;
-  width: 180px;
-  max-height: min(520px, calc(100vh - 96px));
-  padding: 8px;
-  border: 1px solid color-mix(in srgb, var(--border) 82%, transparent);
-  border-radius: var(--radius-md);
-  background: color-mix(in srgb, var(--bg-elevated) 96%, var(--card));
-  box-shadow: 0 18px 48px rgba(0, 0, 0, 0.28);
-  overflow-x: hidden;
-  overflow-y: auto;
-  opacity: 0;
-  pointer-events: none;
-  transform: translateX(-4px);
-  transition:
-    opacity var(--duration-fast) ease,
-    transform var(--duration-fast) ease;
-}
-
-.chat-controls__inline-select[open] .chat-controls__reasoning-panel,
-.chat-controls__inline-select-menu--combined:hover > .chat-controls__reasoning-panel,
-.chat-controls__inline-select-menu--combined:focus-within > .chat-controls__reasoning-panel {
-  opacity: 1;
-  pointer-events: auto;
-  transform: translateX(0);
+  min-width: 0;
+  margin-top: 6px;
+  padding-top: 6px;
+  border-top: 1px solid color-mix(in srgb, var(--border) 70%, transparent);
 }
 
 .chat-controls__reasoning-options {
@@ -2538,13 +2506,6 @@
     width: auto;
     max-height: min(480px, calc(100vh - var(--shell-topbar-height) - 116px));
     overflow: visible;
-  }
-
-  .chat-controls__reasoning-panel {
-    top: auto;
-    bottom: calc(100% + 8px);
-    left: 0;
-    width: min(220px, calc(100vw - 48px));
   }
 
   .chat-compose {

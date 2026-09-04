@@ -2811,6 +2811,31 @@ describe("chat session controls", () => {
     expect(combinedLabel).toContain(t("chat.selectors.thinkingLevel"));
   });
 
+  it("does not open the keyboard when the session picker opens", () => {
+    vi.useFakeTimers();
+    const { state } = createChatHeaderState();
+    const container = document.createElement("div");
+    document.body.append(container);
+
+    try {
+      render(renderChatSessionSelect(state), container);
+      const trigger = container.querySelector<HTMLButtonElement>(
+        'button[data-chat-session-select="true"]',
+      );
+      trigger!.focus();
+      trigger!.click();
+      render(renderChatSessionSelect(state), container);
+      vi.runAllTimers();
+
+      const search = container.querySelector<HTMLInputElement>(
+        'input[data-chat-session-picker-search="true"]',
+      );
+      expect(document.activeElement).not.toBe(search);
+    } finally {
+      container.remove();
+    }
+  });
+
   it("searches chat sessions inside the picker without replacing recent sessions", async () => {
     const { state, request } = createChatHeaderState();
     state.sessionsIncludeGlobal = false;

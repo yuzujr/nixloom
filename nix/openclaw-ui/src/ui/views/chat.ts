@@ -1020,37 +1020,6 @@ function renderComposerActions(
         <span class="nixloom-composer-actions__icon" aria-hidden="true">${icons.paperclip}</span>
         <span>${t("chat.composer.attachFile")}</span>
       </button>
-      ${props.onToggleRealtimeTalk
-        ? html`
-            <button
-              class="nixloom-composer-actions__item"
-              type="button"
-              @click=${() => run(() => props.onToggleRealtimeTalk?.())}
-            >
-              <span class="nixloom-composer-actions__icon" aria-hidden="true"
-                >${props.realtimeTalkActive ? icons.volume2 : icons.radio}</span
-              >
-              <span
-                >${props.realtimeTalkActive
-                  ? t("chat.composer.stopTalk")
-                  : t("chat.composer.startTalk")}</span
-              >
-            </button>
-          `
-        : nothing}
-      ${props.onToggleRealtimeTalkOptions
-        ? html`
-            <button
-              class="nixloom-composer-actions__item"
-              type="button"
-              ?disabled=${Boolean(props.realtimeTalkActive)}
-              @click=${() => run(() => props.onToggleRealtimeTalkOptions?.())}
-            >
-              <span class="nixloom-composer-actions__icon" aria-hidden="true">${icons.settings}</span>
-              <span>Talk settings</span>
-            </button>
-          `
-        : nothing}
       <button
         class="nixloom-composer-actions__item"
         type="button"

@@ -89,62 +89,70 @@
   }
 }
 
-/* Tablet and smaller: reveal the left nav by moving the complete app canvas.
- * The content column always stays viewport-width; it is never squeezed while
- * the navigation track opens. */
+/* Tablet and smaller: the navigation is a fixed 60% canvas that slides in
+ * alongside a full-width app canvas. Neither surface changes width while the
+ * drawer moves. */
 @media (max-width: 1100px) {
   .shell,
   .shell--nav-collapsed {
-    --shell-mobile-nav-width: min(86vw, 320px);
+    --shell-mobile-nav-width: 60vw;
     position: relative;
-    grid-template-columns: 0 100vw;
+    grid-template-columns: 100vw;
     grid-template-rows: var(--shell-topbar-height) minmax(0, 1fr);
     grid-template-areas:
-      "nav topbar"
-      "nav content";
-    transition: grid-template-columns 280ms cubic-bezier(0.22, 1, 0.36, 1);
-  }
-
-  .shell--nav-drawer-open,
-  .shell--nav-collapsed.shell--nav-drawer-open {
-    grid-template-columns: var(--shell-mobile-nav-width) 100vw;
+      "topbar"
+      "content";
   }
 
   .shell-nav,
   .shell--nav-collapsed .shell-nav {
-    position: relative;
+    grid-area: auto;
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    left: 0;
     z-index: 70;
-    width: 100%;
-    min-width: 0;
-    min-height: 0;
+    width: var(--shell-mobile-nav-width);
+    min-width: var(--shell-mobile-nav-width);
+    min-height: 100%;
     overflow: hidden;
     border-right: 1px solid color-mix(in srgb, var(--border) 74%, transparent);
     box-shadow: none;
-    transform: none;
+    transform: translate3d(-100%, 0, 0);
     opacity: 1;
+    pointer-events: none;
+    transition: transform 280ms cubic-bezier(0.22, 1, 0.36, 1);
+    will-change: transform;
+  }
+
+  .shell--nav-drawer-open .shell-nav,
+  .shell--nav-collapsed.shell--nav-drawer-open .shell-nav {
+    transform: translate3d(0, 0, 0);
     pointer-events: auto;
-    transition: none;
   }
 
   .shell-nav > .sidebar,
   .shell--nav-collapsed .shell-nav > .sidebar {
-    width: var(--shell-mobile-nav-width);
-    min-width: var(--shell-mobile-nav-width);
-    flex: 0 0 var(--shell-mobile-nav-width);
+    width: 100%;
+    min-width: 100%;
+    flex: 0 0 100%;
   }
 
   .shell-nav-backdrop {
     display: block;
     position: absolute;
-    inset: 0 0 0 var(--shell-mobile-nav-width);
+    inset: 0;
     z-index: 65;
     padding: 0;
     border: 0;
-    background: transparent;
+    background: rgb(0 0 0 / 14%);
+    opacity: 0;
     pointer-events: none;
+    transition: opacity 280ms cubic-bezier(0.22, 1, 0.36, 1);
   }
 
   .shell--nav-drawer-open .shell-nav-backdrop {
+    opacity: 1;
     pointer-events: auto;
   }
 
@@ -152,6 +160,14 @@
   .content {
     width: 100vw;
     min-width: 100vw;
+    transform: none;
+    transition: transform 280ms cubic-bezier(0.22, 1, 0.36, 1);
+    will-change: transform;
+  }
+
+  .shell--nav-drawer-open .topbar,
+  .shell--nav-drawer-open .content {
+    transform: translate3d(var(--shell-mobile-nav-width), 0, 0);
   }
 
   /* Show the hamburger toggle at the same breakpoint where the drawer takes over. */
@@ -309,7 +325,7 @@
   .shell {
     --shell-pad: 8px;
     --shell-gap: 8px;
-    --shell-mobile-nav-width: min(92vw, 320px);
+    --shell-mobile-nav-width: 60vw;
   }
 
   /* Topbar */

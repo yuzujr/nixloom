@@ -155,7 +155,8 @@ let
         src/ui/app-render.helpers.node.test.ts \
         src/ui/app-chat.test.ts \
         src/ui/app-settings.test.ts \
-        src/ui/storage.node.test.ts
+        src/ui/storage.node.test.ts \
+        src/ui/views/chat.test.ts
 
       runHook postCheck
     '';
