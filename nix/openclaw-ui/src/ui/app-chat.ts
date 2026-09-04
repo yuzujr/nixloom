@@ -24,6 +24,7 @@ import {
   type ChatInputHistoryKeyResult,
   type ChatInputHistoryState,
 } from "./chat/input-history.ts";
+import { extractText } from "./chat/message-extract.ts";
 import { reconcileChatRunLifecycle } from "./chat/run-lifecycle.ts";
 import { clearChatMessagesFromCache, type ChatMessageCache } from "./chat/session-message-cache.ts";
 import type { ChatSideResult } from "./chat/side-result.ts";
@@ -142,6 +143,83 @@ export type ChatHost = ChatInputHistoryState & {
 type ChatAgentsListSnapshot = Partial<Omit<AgentsListResult, "agents">> & {
   agents?: Array<{ id: string }>;
 };
+
+const SESSION_TITLE_MAX_LENGTH = 72;
+
+export function deriveInitialSessionTitle(prompt: string): string | null {
+  const normalized = prompt.replace(/\s+/g, " ").trim();
+  if (!normalized) {
+    return null;
+  }
+  const characters = Array.from(normalized);
+  return characters.length > SESSION_TITLE_MAX_LENGTH
+    ? `${characters.slice(0, SESSION_TITLE_MAX_LENGTH).join("")}…`
+    : normalized;
+}
+
+function hasUserMessage(messages: unknown[]): boolean {
+  return messages.some(
+    (message) =>
+      message &&
+      typeof message === "object" &&
+      normalizeLowercaseStringOrEmpty((message as { role?: unknown }).role) === "user",
+  );
+}
+
+function rememberSessionTitle(host: ChatHost, sessionKey: string, label: string) {
+  if (!host.sessionsResult) {
+    return;
+  }
+  host.sessionsResult = {
+    ...host.sessionsResult,
+    sessions: host.sessionsResult.sessions.map((row) =>
+      row.key === sessionKey ? { ...row, label } : row,
+    ),
+  };
+}
+
+function persistSessionTitle(host: ChatHost, sessionKey: string, title: string | null) {
+  const row = host.sessionsResult?.sessions.find((entry) => entry.key === sessionKey);
+  if (
+    !title ||
+    !row ||
+    normalizeOptionalString(row.label) ||
+    normalizeOptionalString(row.displayName)
+  ) {
+    return;
+  }
+
+  // A label belongs to the session, rather than this sidebar, so it stays
+  // readable after a reload or when the same conversation is opened elsewhere.
+  rememberSessionTitle(host, sessionKey, title);
+  void host.client
+    ?.request("sessions.patch", {
+      key: sessionKey,
+      label: title,
+      ...scopedAgentParamsForSession(host, sessionKey),
+    })
+    .catch(() => undefined);
+}
+
+function nameSessionFromInitialPrompt(host: ChatHost, sessionKey: string, message: string) {
+  if (hasUserMessage(host.chatMessages)) {
+    return;
+  }
+  persistSessionTitle(host, sessionKey, deriveInitialSessionTitle(message));
+}
+
+function nameSessionFromHistory(host: ChatHost, sessionKey: string) {
+  const initialPrompt = host.chatMessages.find(
+    (message) =>
+      message &&
+      typeof message === "object" &&
+      normalizeLowercaseStringOrEmpty((message as { role?: unknown }).role) === "user",
+  );
+  if (!initialPrompt) {
+    return;
+  }
+  persistSessionTitle(host, sessionKey, deriveInitialSessionTitle(extractText(initialPrompt) ?? ""));
+}
 
 type ChatMetadataApplyResult = {
   commands: boolean;
@@ -1142,6 +1220,7 @@ async function sendQueuedChatMessage(
     }
     removeQueuedMessageWithoutReleasing(host, id, sessionKey);
     if (isVisibleSession()) {
+      nameSessionFromInitialPrompt(host, sessionKey, message);
       appendUserChatMessage(
         host as unknown as ChatState,
         message,
@@ -2124,6 +2203,15 @@ export async function refreshChat(
       );
     }
   });
+  const sessionTitleRefresh = historyLoad.then(() => {
+    if (
+      host.client === refreshedClient &&
+      host.connected &&
+      host.sessionKey === refreshedSessionKey
+    ) {
+      nameSessionFromHistory(host, refreshedSessionKey);
+    }
+  });
   const startupMetadataRefresh =
     opts?.startup === true
       ? historyLoad.then((history) => {
@@ -2148,9 +2236,11 @@ export async function refreshChat(
     sessionsRefresh,
     previousSessionsResult,
   );
-  const secondaryRefresh = Promise.allSettled([sessionsRefresh, startupMetadataRefresh]).finally(
-    requestUpdate,
-  );
+  const secondaryRefresh = Promise.allSettled([
+    sessionsRefresh,
+    sessionTitleRefresh,
+    startupMetadataRefresh,
+  ]).finally(requestUpdate);
   scheduleChatMetadataRefresh(() => {
     if (host.sessionKey !== refreshedSessionKey || !host.connected) {
       return;

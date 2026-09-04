@@ -42,6 +42,7 @@ vi.mock("./chat/slash-command-executor.ts", async (importOriginal) => {
 });
 
 let handleSendChat: typeof import("./app-chat.ts").handleSendChat;
+let deriveInitialSessionTitle: typeof import("./app-chat.ts").deriveInitialSessionTitle;
 let steerQueuedChatMessage: typeof import("./app-chat.ts").steerQueuedChatMessage;
 let navigateChatInputHistory: typeof import("./app-chat.ts").navigateChatInputHistory;
 let handleAbortChat: typeof import("./app-chat.ts").handleAbortChat;
@@ -58,6 +59,7 @@ let recordFirstAssistantChatTiming: typeof import("./app-chat.ts").recordFirstAs
 async function loadChatHelpers(): Promise<void> {
   ({
     handleSendChat,
+    deriveInitialSessionTitle,
     steerQueuedChatMessage,
     navigateChatInputHistory,
     handleAbortChat,
@@ -1245,6 +1247,39 @@ describe("handleSendChat", () => {
   afterEach(() => {
     vi.restoreAllMocks();
     vi.unstubAllGlobals();
+  });
+
+  it("derives a readable, bounded title from the initial prompt", () => {
+    expect(deriveInitialSessionTitle("  Draft\n  a readable session title  ")).toBe(
+      "Draft a readable session title",
+    );
+    expect(deriveInitialSessionTitle("   ")).toBeNull();
+    expect(deriveInitialSessionTitle("x".repeat(73))).toBe(`${"x".repeat(72)}…`);
+  });
+
+  it("stores the initial prompt as the session label after the send is accepted", async () => {
+    const request = vi.fn(async (method: string) => {
+      if (method === "chat.send") {
+        return { status: "started" };
+      }
+      if (method === "sessions.patch") {
+        return { ok: true };
+      }
+      throw new Error(`Unexpected request: ${method}`);
+    });
+    const host = makeHost({
+      client: { request } as unknown as ChatHost["client"],
+      chatMessage: "Plan a calm mobile session sidebar",
+      sessionsResult: createSessionsResult([row("agent:main")]),
+    });
+
+    await handleSendChat(host);
+
+    expect(request).toHaveBeenCalledWith("sessions.patch", {
+      key: "agent:main",
+      label: "Plan a calm mobile session sidebar",
+    });
+    expect(host.sessionsResult?.sessions[0]?.label).toBe("Plan a calm mobile session sidebar");
   });
 
   it("cancels button-triggered /new resets when confirmation is declined", async () => {

@@ -32,16 +32,24 @@ function syncDocumentPublicAssetLinks() {
   setDocumentLinkHref('link[rel="icon"][type="image/svg+xml"]', "favicon.svg");
   setDocumentLinkHref('link[rel="icon"][type="image/png"]', "favicon-32.png");
   setDocumentLinkHref('link[rel="apple-touch-icon"]', "apple-touch-icon.png");
-  setDocumentLinkHref('link[rel="manifest"]', "manifest.webmanifest");
+  setDocumentLinkHref('link[rel="manifest"]', "manifest.webmanifest", { versioned: true });
 }
 
 function setDocumentLinkHref(
   selector: string,
   asset: Parameters<typeof inferControlUiPublicAssetPath>[0],
+  options: { versioned?: boolean } = {},
 ) {
   const link = document.querySelector<HTMLLinkElement>(selector);
   if (!link) {
     return;
   }
-  link.href = inferControlUiPublicAssetPath(asset);
+  const href = inferControlUiPublicAssetPath(asset);
+  if (!options.versioned) {
+    link.href = href;
+    return;
+  }
+  const url = new URL(href, window.location.origin);
+  url.searchParams.set("v", OPENCLAW_CONTROL_UI_BUILD_ID || "dev");
+  link.href = url.href;
 }

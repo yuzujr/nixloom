@@ -152,7 +152,10 @@ let
       cd "$NIX_BUILD_TOP/$sourceRoot/ui"
       node ../node_modules/vitest/vitest.mjs run --config vitest.config.ts \
         src/ui/chat/grouped-render.test.ts \
-        src/ui/app-render.helpers.node.test.ts
+        src/ui/app-render.helpers.node.test.ts \
+        src/ui/app-chat.test.ts \
+        src/ui/app-settings.test.ts \
+        src/ui/storage.node.test.ts
 
       runHook postCheck
     '';

@@ -464,18 +464,18 @@ describe("control UI routing", () => {
     expectElement(header, ".nav-collapse-toggle", HTMLElement);
   });
 
-  it("hides child nav items when the active group is collapsed", async () => {
+  it("hides child nav items when the control group is collapsed", async () => {
     const app = mountApp("/chat");
     await app.updateComplete;
 
     app.applySettings({
       ...app.settings,
-      navGroupsCollapsed: { ...app.settings.navGroupsCollapsed, chat: true },
+      navGroupsCollapsed: { ...app.settings.navGroupsCollapsed, control: true },
     });
     await app.updateComplete;
 
-    const chatLink = expectElement(app, 'a.nav-item[href="/chat"]', HTMLAnchorElement);
-    const section = chatLink.closest(".nav-section");
+    const overviewLink = expectElement(app, 'a.nav-item[href="/overview"]', HTMLAnchorElement);
+    const section = overviewLink.closest(".nav-section");
     expect(section).toBeInstanceOf(HTMLElement);
     if (!(section instanceof HTMLElement)) {
       throw new Error("Expected chat link to be inside a nav section");
@@ -512,28 +512,6 @@ describe("control UI routing", () => {
       "Second workspace just now",
       "First workspace 5m ago",
     ]);
-
-    const recentSection = expectElement(app, ".sidebar-recent-sessions", HTMLElement);
-    const recentToggle = expectElement(
-      recentSection,
-      ".sidebar-recent-sessions__label",
-      HTMLButtonElement,
-    );
-    expect(recentToggle.getAttribute("aria-expanded")).toBe("true");
-
-    recentToggle.click();
-    await app.updateComplete;
-
-    expect(app.settings.recentSessionsCollapsed).toBe(true);
-    expect(recentToggle.getAttribute("aria-expanded")).toBe("false");
-    expect([...recentSection.classList]).toContain("sidebar-recent-sessions--collapsed");
-
-    recentToggle.click();
-    await app.updateComplete;
-
-    expect(app.settings.recentSessionsCollapsed).toBe(false);
-    expect(recentToggle.getAttribute("aria-expanded")).toBe("true");
-    expect([...recentSection.classList]).not.toContain("sidebar-recent-sessions--collapsed");
 
     recent[1]?.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true }));
     await app.updateComplete;
@@ -641,8 +619,7 @@ describe("control UI routing", () => {
     const app = mountApp("/sessions?session=agent:main:subagent:task-123");
     await app.updateComplete;
 
-    const link = expectElement(app, 'a.nav-item[href="/chat"]', HTMLAnchorElement);
-    link.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true, button: 0 }));
+    app.setTab("chat");
 
     await app.updateComplete;
     expect(app.tab).toBe("chat");
@@ -652,14 +629,11 @@ describe("control UI routing", () => {
 
     const shell = expectElement(app, ".shell", HTMLElement);
     const topbar = expectElement(app, ".topbar", HTMLElement);
-    const sessionSelect = expectElement(app, ".sidebar-session-select", HTMLElement);
     expect([...shell.classList]).toEqual(["shell", "shell--chat"]);
     expect(topbar.hasAttribute("inert")).toBe(false);
     expect(topbar.hasAttribute("aria-hidden")).toBe(false);
     expect(app.querySelector(".content-header")).toBeNull();
-    expect(sessionSelect.querySelector(".chat-controls__session-picker")).toBeInstanceOf(
-      HTMLElement,
-    );
+    expect(app.querySelector(".sidebar-session-select")).toBeNull();
 
     app.setTab("channels");
 
@@ -672,8 +646,7 @@ describe("control UI routing", () => {
     expect(channelsContentHeader.hasAttribute("inert")).toBe(false);
     expect(channelsContentHeader.hasAttribute("aria-hidden")).toBe(false);
 
-    const chatLink = expectElement(app, 'a.nav-item[href="/chat"]', HTMLAnchorElement);
-    chatLink.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true, button: 0 }));
+    app.setTab("chat");
 
     await app.updateComplete;
     expect(app.tab).toBe("chat");

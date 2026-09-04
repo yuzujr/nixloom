@@ -145,7 +145,6 @@ describe("loadSettings default gateway URL derivation", () => {
       navCollapsed: false,
       navWidth: 220,
       navGroupsCollapsed: {},
-      recentSessionsCollapsed: false,
       borderRadius: 50,
       textScale: 100,
       sessionsByGateway: {
@@ -276,7 +275,6 @@ describe("loadSettings default gateway URL derivation", () => {
       navCollapsed: false,
       navWidth: 220,
       navGroupsCollapsed: {},
-      recentSessionsCollapsed: false,
       borderRadius: 50,
       textScale: 100,
       sessionsByGateway: {
@@ -287,63 +285,6 @@ describe("loadSettings default gateway URL derivation", () => {
       },
     });
     expect(sessionStorage.length).toBe(1);
-  });
-
-  it("persists recent sessions collapse state across save and load", () => {
-    setTestLocation({
-      protocol: "https:",
-      host: "gateway.example:8443",
-      pathname: "/",
-    });
-
-    const gwUrl = expectedGatewayUrl("");
-    saveSettings({
-      gatewayUrl: gwUrl,
-      token: "",
-      sessionKey: "main",
-      lastActiveSessionKey: "main",
-      theme: "claw",
-      themeMode: "system",
-      chatShowThinking: true,
-      chatShowToolCalls: true,
-      chatAutoScroll: "near-bottom",
-      splitRatio: 0.6,
-      navCollapsed: false,
-      navWidth: 220,
-      navGroupsCollapsed: {},
-      recentSessionsCollapsed: true,
-      borderRadius: 50,
-      textScale: 100,
-    });
-
-    expect(loadSettings().recentSessionsCollapsed).toBe(true);
-
-    saveSettings({
-      gatewayUrl: gwUrl,
-      token: "",
-      sessionKey: "main",
-      lastActiveSessionKey: "main",
-      theme: "claw",
-      themeMode: "system",
-      chatShowThinking: true,
-      chatShowToolCalls: true,
-      chatAutoScroll: "near-bottom",
-      splitRatio: 0.6,
-      navCollapsed: false,
-      navWidth: 220,
-      navGroupsCollapsed: {},
-      recentSessionsCollapsed: false,
-      borderRadius: 50,
-      textScale: 100,
-    });
-
-    const scopedKey = `openclaw.control.settings.v1:${gwUrl}`;
-    const persisted = JSON.parse(localStorage.getItem(scopedKey) ?? "{}") as Record<
-      string,
-      unknown
-    >;
-    expect(persisted.recentSessionsCollapsed).toBe(false);
-    expect(loadSettings().recentSessionsCollapsed).toBe(false);
   });
 
   it("normalizes persisted text scale to the nearest supported stop", () => {

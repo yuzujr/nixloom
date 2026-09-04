@@ -600,6 +600,12 @@ export function applyResolvedTheme(host: SettingsHost, resolved: ResolvedTheme) 
   root.dataset.theme = resolved;
   root.dataset.themeMode = themeMode;
   root.style.colorScheme = themeMode;
+  const themeColor = themeMode === "light" ? "#f7f7f8" : "#101114";
+  const meta =
+    typeof document.querySelector === "function"
+      ? document.querySelector<HTMLMetaElement>('meta[name="theme-color"]')
+      : null;
+  meta?.setAttribute("content", themeColor);
 }
 
 function syncSystemThemeListener(host: SettingsHost) {

@@ -25,8 +25,12 @@
 @media (width <= 768px) {
   /* A native-feeling app bar: quiet chrome, one clear identity, and no card
    * treatment around the navigation affordance. */
-  .shell {
-    grid-template-areas: "topbar" "content";
+  .shell,
+  .shell--nav-collapsed {
+    --shell-mobile-nav-width: min(82vw, 360px);
+    grid-template-areas:
+      "nav topbar"
+      "nav content";
     grid-template-rows: calc(52px + env(safe-area-inset-top)) minmax(0, 1fr);
     background: var(--bg);
   }
@@ -102,10 +106,6 @@
 
   .topbar-theme-mode {
     display: none;
-  }
-
-  .shell-nav {
-    width: min(82vw, 360px);
   }
 
   /* Tap-to-trigger buttons must not pop a tooltip on the phone; the floating
