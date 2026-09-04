@@ -269,75 +269,24 @@ def _write_secret(path: Path, value: str) -> None:
         Path(temporary_name).unlink(missing_ok=True)
 
 
-def _patch_index(html: str, marker: str, anchor: str, replacement: str) -> str:
-    """Insert ``replacement`` at ``anchor`` unless ``marker`` is already present.
-
-    Raises ConfigError when the anchor is missing or ambiguous, so an openclaw
-    upgrade that changes the page shell fails loudly instead of silently
-    serving an unpatched UI.
-    """
-    if marker in html:
-        return html
-    count = html.count(anchor)
-    if count == 0:
-        raise ConfigError(f"Control UI index.html lost its {anchor!r} anchor")
-    if count > 1:
-        raise ConfigError(f"Control UI index.html has {count}x {anchor!r} anchors")
-    return html.replace(anchor, replacement)
-
-
-def _sync_control_ui(src: Path, root: Path, css: Path, js: Path) -> None:
+def _sync_control_ui(src: Path, root: Path) -> None:
     """Mirror the packaged Control UI into a mutable state-dir copy.
 
     The gateway serves a custom ``controlUi.root`` with ``rejectHardlinks``
     enabled, and Nix store files are hard-linked (``nlink > 1``), which that
     check rejects.  A plain copy (``cp`` semantics) yields ``nlink == 1`` files
-    that pass the check, and lets the CSS be edited in place for fast phone
-    iteration without rebuilding the openclaw package.
-
-    The polish layer (CSS + adaptive JS) is carried by the runtime and injected
-    here with anchor-verified substitutions; see ``_patch_index``.
+    that pass the check.  The source is NixLoom's complete, pre-built Control
+    UI; no HTML/CSS/JavaScript is injected at runtime.
     """
     root.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
     shutil.rmtree(root, ignore_errors=True)
     shutil.copytree(src, root)
     # Store files come out read-only (0444) and the store dirs read-execute
-    # (0555); make the whole copy writable so the injected files and the
-    # index.html patches below can write.
+    # (0555); normalize the runtime copy for the gateway's static-file checks.
     for dirpath, _dirnames, filenames in os.walk(root):
         os.chmod(dirpath, 0o755)
         for name in filenames:
             os.chmod(os.path.join(dirpath, name), 0o644)
-    # Copy the polish assets in as separate files so editing them never
-    # rebuilds the openclaw package.
-    for source, name in ((css, "nixloom-control-ui.css"), (js, "nixloom-control-ui.js")):
-        shutil.copy2(source, root / name)
-        # copy2 preserves the store's 0444; the CSS is the file meant for
-        # editing, and the JS stays readable.
-        os.chmod(root / name, 0o644)
-
-    index = root / "index.html"
-    html = index.read_text(encoding="utf-8")
-    # 1. Polish stylesheet AFTER OpenClaw's own assets/index-*.css link, so
-    #    same-specificity mobile overrides win the cascade.
-    html = _patch_index(
-        html,
-        "nixloom-control-ui.css",
-        "</head>",
-        '<link rel="stylesheet" href="./nixloom-control-ui.css" />\n</head>',
-    )
-    # 2. Adaptive script as an external same-origin file (the gateway CSP
-    #    allows script-src 'self'; inline scripts are a policy hazard and
-    #    harder to maintain).
-    html = _patch_index(
-        html,
-        "nixloom-control-ui.js",
-        "</body>",
-        '<script src="./nixloom-control-ui.js"></script>\n</body>',
-    )
-    index.write_text(html, encoding="utf-8")
-
-
 def _sync_plugin_path(plugin_path: Path | None, suffix: str) -> None:
     paths = _get_config_value(_read_config(), "plugins.load.paths")
     if not isinstance(paths, list):
@@ -436,15 +385,8 @@ def prepare(config: Config, paths: RuntimePaths) -> None:
     )
     control_ui_src = os.environ.get("NIXLOOM_OPENCLAW_CONTROL_UI_SRC", "").strip()
     control_ui_root = os.environ.get("NIXLOOM_OPENCLAW_CONTROL_UI_ROOT", "").strip()
-    control_ui_css = os.environ.get("NIXLOOM_OPENCLAW_CONTROL_UI_CSS", "").strip()
-    control_ui_js = os.environ.get("NIXLOOM_OPENCLAW_CONTROL_UI_JS", "").strip()
-    if control_ui_src and control_ui_root and control_ui_css and control_ui_js:
-        _sync_control_ui(
-            Path(control_ui_src),
-            Path(control_ui_root),
-            Path(control_ui_css),
-            Path(control_ui_js),
-        )
+    if control_ui_src and control_ui_root:
+        _sync_control_ui(Path(control_ui_src), Path(control_ui_root))
     reconcile_settings(config)
 
 

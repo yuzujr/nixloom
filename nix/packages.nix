@@ -64,10 +64,10 @@ let
   # an earlier override pinning a different pnpmDepsHash is gone because it went
   # stale when nixpkgs-unstable moved and only surfaced on the first rebuild.
   #
-  # The Control UI polish layer is intentionally NOT injected into the package.
-  # nixloom serves the UI from a mutable state-dir copy (see
-  # nixloom.openclaw._sync_control_ui), so CSS changes do not trigger a slow
-  # pnpm rebuild.
+  # NixLoom owns the complete Control UI source tree at
+  # nix/openclaw-ui.  It is built against the exact OpenClaw source and pnpm
+  # runtime dependency set used by the gateway, so a protocol/UI update is an
+  # explicit, reproducible change rather than a runtime DOM injection.
   #
   # The local stable-diffusion.cpp profile supports 512x512 but not OpenClaw's
   # implicit 1024x1024 default.  Teach the OpenAI-compatible provider that
@@ -113,6 +113,50 @@ let
       --add-flags "$out/lib/openclaw/dist/index.js"
   '';
 
+  openclawUi = pkgs.stdenvNoCC.mkDerivation {
+    pname = "nixloom-openclaw-ui";
+    version = pkgs.openclaw.version;
+    src = pkgs.openclaw.src;
+    nativeBuildInputs = [ pkgs.nodejs-slim_22 ];
+    doCheck = true;
+    postPatch = ''
+      rm -rf ui
+      cp -r ${./openclaw-ui} ui
+      chmod -R u+w ui
+      # The packaged gateway already contains the exact dependency closure
+      # with which it was built.  Reusing it avoids fetching every optional
+      # cross-platform binary in OpenClaw's monorepo just to run Vite.
+      cp -a --reflink=auto ${pkgs.openclaw}/lib/openclaw/node_modules ./node_modules
+      chmod -R u+w node_modules
+    '';
+    buildPhase = ''
+      runHook preBuild
+
+      cd ui
+      OPENCLAW_CONTROL_UI_BUILD_ID="nixloom-${pkgs.openclaw.version}" \
+        node ../node_modules/vite/bin/vite.js build --config vite.config.ts
+
+      runHook postBuild
+    '';
+    checkPhase = ''
+      runHook preCheck
+
+      cd "$NIX_BUILD_TOP/$sourceRoot/ui"
+      node ../node_modules/vitest/vitest.mjs run --config vitest.config.ts \
+        src/ui/chat/grouped-render.test.ts
+
+      runHook postCheck
+    '';
+    installPhase = ''
+      runHook preInstall
+      mkdir -p "$out"
+      cp -r ../dist/control-ui/. "$out/"
+      test -f "$out/index.html"
+      test -f "$out/manifest.webmanifest"
+      runHook postInstall
+    '';
+  };
+
   openclawRuntime = pkgs.symlinkJoin {
     name = "nixloom-openclaw-runtime";
     paths = [ openclaw ];
@@ -122,8 +166,7 @@ let
       ln -s ${openclaw}/lib/openclaw \
         "$out/share/nixloom/openclaw-plugin-yuanbao/node_modules/openclaw"
       ln -s ${tavily} "$out/share/nixloom/openclaw-plugin-tavily"
-      cp ${./openclaw-control-ui.css} "$out/share/nixloom/openclaw-control-ui.css"
-      cp ${./openclaw-control-ui.js} "$out/share/nixloom/openclaw-control-ui.js"
+      cp -r --no-preserve=mode ${openclawUi} "$out/share/nixloom/openclaw-control-ui"
     '';
   };
 
