@@ -95,7 +95,7 @@
 @media (max-width: 1100px) {
   .shell,
   .shell--nav-collapsed {
-    --shell-mobile-nav-width: min(84vw, 320px);
+    --shell-mobile-nav-width: min(80vw, 320px);
     position: relative;
     grid-template-columns: 100vw;
     grid-template-rows: var(--shell-topbar-height) minmax(0, 1fr);
@@ -325,7 +325,7 @@
   .shell {
     --shell-pad: 8px;
     --shell-gap: 8px;
-    --shell-mobile-nav-width: min(84vw, 320px);
+    --shell-mobile-nav-width: min(80vw, 320px);
   }
 
   /* Topbar */
