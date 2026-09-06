@@ -23,11 +23,26 @@
 
 /* ============================= Mobile ============================= */
 @media (width <= 768px) {
+  /* Match native mobile controls: Chromium's tap highlight and its transient
+   * focus ring should never flash on pointer/touch activation.  Keyboard
+   * focus remains visible through the shared :focus-visible treatment. */
+  button,
+  a,
+  summary,
+  [role="button"],
+  [role="option"] {
+    -webkit-tap-highlight-color: transparent;
+  }
+
+  :focus:not(:focus-visible) {
+    outline: none;
+  }
+
   /* A native-feeling app bar: quiet chrome, one clear identity, and no card
    * treatment around the navigation affordance. */
   .shell,
   .shell--nav-collapsed {
-    --shell-mobile-nav-width: min(75vw, 320px);
+    --shell-mobile-nav-width: 75vw;
     grid-template-areas:
       "topbar"
       "content";
@@ -63,8 +78,16 @@
     -webkit-tap-highlight-color: transparent;
   }
 
+  .sidebar-menu-trigger.topbar-nav-toggle:hover,
+  .sidebar-menu-trigger.topbar-nav-toggle:focus-visible {
+    border-color: transparent;
+    background: transparent;
+    box-shadow: none;
+    transform: none;
+  }
+
   .sidebar-menu-trigger.topbar-nav-toggle:active {
-    background: color-mix(in srgb, var(--text) 8%, transparent);
+    background: transparent;
     transform: none;
   }
 
