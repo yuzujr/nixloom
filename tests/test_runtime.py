@@ -18,6 +18,18 @@ class RuntimeTests(unittest.TestCase):
         self.assertEqual(command[0], "llama-server")
         self.assertIn("--mmproj", command)
         self.assertIn("--reasoning-preserve", command)
+        self.assertIn("--fit", command)
+        self.assertNotIn("--n-cpu-moe", command)
+
+    def test_llama_command_explicit_n_cpu_moe(self) -> None:
+        self.config.value["llm"]["n_cpu_moe"] = 32
+        try:
+            command = llama_command(self.config, self.paths, port="${PORT}")
+            self.assertIn("--n-cpu-moe", command)
+            idx = command.index("--n-cpu-moe")
+            self.assertEqual(command[idx + 1], "32")
+        finally:
+            self.config.value["llm"]["n_cpu_moe"] = "auto"
 
     def test_image_runtime_is_stable_diffusion_cpp(self) -> None:
         command = image_command(self.config, self.paths, port="${PORT}")

@@ -37,6 +37,20 @@ class ConfigTests(unittest.TestCase):
         ):
             config.validate()
 
+    def test_n_cpu_moe_validation(self) -> None:
+        paths = RuntimePaths.from_environment(str(ROOT / "config.yaml"))
+        config = Config.load(paths)
+        config.value["llm"]["n_cpu_moe"] = "invalid"
+        with self.assertRaisesRegex(ConfigError, "n_cpu_moe"):
+            config.validate()
+        config.value["llm"]["n_cpu_moe"] = -1
+        with self.assertRaisesRegex(ConfigError, "n_cpu_moe"):
+            config.validate()
+        config.value["llm"]["n_cpu_moe"] = 40
+        config.validate()
+        config.value["llm"]["n_cpu_moe"] = "auto"
+        config.validate()
+
 
 if __name__ == "__main__":
     unittest.main()

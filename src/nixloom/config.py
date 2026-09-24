@@ -166,13 +166,23 @@ class Config:
         if maximum >= context:
             raise ConfigError("llm.max_tokens must be smaller than llm.context")
         for key in (
-            "n_cpu_moe",
             "fit_target",
             "threads",
             "threads_batch",
             "image_tokens",
         ):
             self.integer(f"llm.{key}", minimum=1)
+        n_cpu_moe = self.get("llm.n_cpu_moe")
+        if (
+            n_cpu_moe is not None
+            and n_cpu_moe != "auto"
+            and (
+                not isinstance(n_cpu_moe, int)
+                or isinstance(n_cpu_moe, bool)
+                or n_cpu_moe < 0
+            )
+        ):
+            raise ConfigError("llm.n_cpu_moe must be 'auto' or a non-negative integer")
         for key in ("mmap", "flash_attention", "mmproj_offload", "reasoning_preserve"):
             self.boolean(f"llm.{key}")
         for key in ("cache_type_k", "cache_type_v"):

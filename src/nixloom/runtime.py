@@ -58,52 +58,57 @@ def llama_command(
         "on",
         "--fit-target",
         str(config.integer("llm.fit_target", minimum=1)),
-        "--n-cpu-moe",
-        str(config.integer("llm.n_cpu_moe", minimum=1)),
-        "--threads",
-        str(config.integer("llm.threads", minimum=1)),
-        "--threads-batch",
-        str(config.integer("llm.threads_batch", minimum=1)),
-        "--flash-attn",
-        _on_off(config.boolean("llm.flash_attention")),
-        "--cache-type-k",
-        config.string("llm.cache_type_k"),
-        "--cache-type-v",
-        config.string("llm.cache_type_v"),
-        "--image-min-tokens",
-        str(config.integer("llm.image_tokens", minimum=1)),
-        "--image-max-tokens",
-        str(config.integer("llm.image_tokens", minimum=1)),
-        "--reasoning",
-        "auto",
-        "--reasoning-budget",
-        "-1",
-        "--reasoning-format",
-        "deepseek",
-        "--chat-template-kwargs",
-        '{"enable_thinking":false}',
-        "--temp",
-        str(sampling["temperature"]),
-        "--top-k",
-        str(sampling["top_k"]),
-        "--top-p",
-        str(sampling["top_p"]),
-        "--min-p",
-        str(sampling["min_p"]),
-        "--frequency-penalty",
-        str(sampling["frequency_penalty"]),
-        "--presence-penalty",
-        str(sampling["presence_penalty"]),
-        "--repeat-penalty",
-        str(sampling["repeat_penalty"]),
-        "--mmap" if config.boolean("llm.mmap") else "--no-mmap",
-        "--mmproj-offload"
-        if config.boolean("llm.mmproj_offload")
-        else "--no-mmproj-offload",
-        "--reasoning-preserve"
-        if config.boolean("llm.reasoning_preserve")
-        else "--no-reasoning-preserve",
     ]
+    n_cpu_moe = llm.get("n_cpu_moe", "auto")
+    if n_cpu_moe not in (None, "auto", 0):
+        command.extend(["--n-cpu-moe", str(n_cpu_moe)])
+    command.extend(
+        [
+            "--threads",
+            str(config.integer("llm.threads", minimum=1)),
+            "--threads-batch",
+            str(config.integer("llm.threads_batch", minimum=1)),
+            "--flash-attn",
+            _on_off(config.boolean("llm.flash_attention")),
+            "--cache-type-k",
+            config.string("llm.cache_type_k"),
+            "--cache-type-v",
+            config.string("llm.cache_type_v"),
+            "--image-min-tokens",
+            str(config.integer("llm.image_tokens", minimum=1)),
+            "--image-max-tokens",
+            str(config.integer("llm.image_tokens", minimum=1)),
+            "--reasoning",
+            "auto",
+            "--reasoning-budget",
+            "-1",
+            "--reasoning-format",
+            "deepseek",
+            "--chat-template-kwargs",
+            '{"enable_thinking":false}',
+            "--temp",
+            str(sampling["temperature"]),
+            "--top-k",
+            str(sampling["top_k"]),
+            "--top-p",
+            str(sampling["top_p"]),
+            "--min-p",
+            str(sampling["min_p"]),
+            "--frequency-penalty",
+            str(sampling["frequency_penalty"]),
+            "--presence-penalty",
+            str(sampling["presence_penalty"]),
+            "--repeat-penalty",
+            str(sampling["repeat_penalty"]),
+            "--mmap" if config.boolean("llm.mmap") else "--no-mmap",
+            "--mmproj-offload"
+            if config.boolean("llm.mmproj_offload")
+            else "--no-mmproj-offload",
+            "--reasoning-preserve"
+            if config.boolean("llm.reasoning_preserve")
+            else "--no-reasoning-preserve",
+        ]
+    )
     return command
 
 

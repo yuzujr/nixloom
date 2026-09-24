@@ -9,7 +9,7 @@ llm:
   context: 131072
   max_tokens: 8192
   gpu_layers: auto
-  n_cpu_moe: 32
+  n_cpu_moe: auto
   fit_target: 512
   mmap: false
   threads: 8
