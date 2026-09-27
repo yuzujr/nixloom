@@ -23,7 +23,6 @@ import {
   renderTopbarThemeModeToggle,
   createChatSession,
   dismissChatError,
-  dismissRealtimeTalkError,
   switchChatSession,
   switchChatSessionAndWait,
 } from "./app-render.helpers.ts";
@@ -530,7 +529,7 @@ function renderSidebarSessions(state: AppViewState, collapsed: boolean) {
       <button
         type="button"
         class="sidebar-new-session"
-        title=${newSessionTitle}
+        title=${collapsed ? newSessionTitle : nothing}
         aria-label=${t("chat.runControls.newSession")}
         ?disabled=${newSessionDisabled}
         @click=${async () => {
@@ -761,7 +760,6 @@ const COMMUNICATION_SECTION_KEYS = [
   "messages",
   "broadcast",
   "__notifications__",
-  "talk",
   "audio",
   "channels",
 ] as const;
@@ -2411,7 +2409,6 @@ export function renderApp(state: AppViewState) {
               @click=${() => {
                 state.paletteOpen = !state.paletteOpen;
               }}
-              title=${t("chat.commandPaletteTitle")}
               aria-label=${t("chat.openCommandPalette")}
             >
               <span class="topbar-search__label">${t("common.search")}</span>
@@ -2508,7 +2505,9 @@ export function renderApp(state: AppViewState) {
                   href="https://docs.openclaw.ai"
                   target=${EXTERNAL_LINK_TARGET}
                   rel=${buildExternalLinkRel()}
-                  title=${t("chat.docsOpensInNewTab", { label: t("common.docs") })}
+                  title=${navCollapsed
+                    ? t("chat.docsOpensInNewTab", { label: t("common.docs") })
+                    : nothing}
                 >
                   <span class="nav-item__icon" aria-hidden="true">${icons.book}</span>
                   ${!navCollapsed
@@ -3667,21 +3666,12 @@ export function renderApp(state: AppViewState) {
                   streamStartedAt: state.chatStreamStartedAt,
                   draft: state.chatMessage,
                   queue: state.chatQueue,
-                  realtimeTalkActive: state.realtimeTalkActive,
-                  realtimeTalkStatus: state.realtimeTalkStatus,
-                  realtimeTalkDetail: state.realtimeTalkDetail,
-                  realtimeTalkTranscript: state.realtimeTalkTranscript,
-                  realtimeTalkConversation: state.realtimeTalkConversation,
-                  realtimeTalkOptionsOpen: state.realtimeTalkOptionsOpen,
-                  realtimeTalkOptions: state.realtimeTalkOptions,
-                  realtimeTalkCatalogProviders: state.realtimeTalkCatalogProviders,
                   connected: state.connected,
                   canSend: state.connected,
                   disabledReason: chatDisabledReason,
                   error: chatViewError,
                   runStatus: state.chatRunStatus,
                   onDismissError: () => dismissChatError(state),
-                  onDismissRealtimeTalkError: () => dismissRealtimeTalkError(state),
                   sessions: state.sessionsResult,
                   composerControls: renderGuardedChatControls(state),
                   sessionWorkspace: {
@@ -3726,14 +3716,6 @@ export function renderApp(state: AppViewState) {
                       ...scopedAgentListParamsForSession(state, state.sessionKey),
                     });
                   },
-                  onToggleRealtimeTalk: () => void state.toggleRealtimeTalk(),
-                  onToggleRealtimeTalkOptions: () => {
-                    state.realtimeTalkOptionsOpen = !state.realtimeTalkOptionsOpen;
-                    if (state.realtimeTalkOptionsOpen) {
-                      void state.fetchRealtimeTalkCatalog();
-                    }
-                  },
-                  onRealtimeTalkOptionsChange: (next) => state.updateRealtimeTalkOptions(next),
                   canAbort: hasAbortableSessionRun(state),
                   onAbort: () => void state.handleAbortChat({ preserveDraft: true }),
                   onQueueRemove: (id) => state.removeQueuedMessage(id),

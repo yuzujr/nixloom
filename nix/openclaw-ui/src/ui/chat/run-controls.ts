@@ -27,7 +27,6 @@ export function renderChatRunControls(props: ChatRunControlsProps) {
             <button
               class="btn btn--ghost"
               @click=${props.onNewSession}
-              title=${t("chat.runControls.newSession")}
               aria-label=${t("chat.runControls.newSession")}
             >
               ${icons.plus}
@@ -40,7 +39,6 @@ export function renderChatRunControls(props: ChatRunControlsProps) {
             <button
               class="btn btn--ghost"
               @click=${props.onExport}
-              title=${t("chat.runControls.export")}
               aria-label=${t("chat.runControls.exportChat")}
               ?disabled=${!props.hasMessages}
             >
@@ -60,7 +58,6 @@ export function renderChatRunControls(props: ChatRunControlsProps) {
                 props.onSend();
               }}
               ?disabled=${!props.connected || props.sending}
-              title=${t("chat.runControls.queue")}
               aria-label=${t("chat.runControls.queueMessage")}
             >
               ${icons.send}
@@ -69,7 +66,6 @@ export function renderChatRunControls(props: ChatRunControlsProps) {
             <button
               class="chat-send-btn chat-send-btn--stop"
               @click=${props.onAbort}
-              title=${t("chat.runControls.stop")}
               aria-label=${t("chat.runControls.stopGenerating")}
             >
               ${icons.stop}
@@ -86,7 +82,6 @@ export function renderChatRunControls(props: ChatRunControlsProps) {
                 props.onSend();
               }}
               ?disabled=${!props.connected || props.sending}
-              title=${props.isBusy ? t("chat.runControls.queue") : t("chat.runControls.send")}
               aria-label=${props.isBusy
                 ? t("chat.runControls.queueMessage")
                 : t("chat.runControls.sendMessage")}

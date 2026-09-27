@@ -21,7 +21,11 @@ import { isMonitoredAuthProvider } from "../model-auth-helpers.ts";
 import { pathForTab } from "../navigation.ts";
 import { collectQuotaWindowsFromAuthStatus, formatQuotaReset } from "../provider-quota-summary.ts";
 import { pushUniqueTrimmedSelectOption } from "../select-options.ts";
-import { isCronSessionKey, resolveSessionDisplayName } from "../session-display.ts";
+import {
+  isCronSessionKey,
+  isDashboardSessionKey,
+  resolveSessionDisplayName,
+} from "../session-display.ts";
 import {
   buildAgentMainSessionKey,
   isSessionKeyTiedToAgent,
@@ -716,7 +720,6 @@ function renderChatSessionPickerPopover(
                 data-session-key=${row.key}
                 role="option"
                 aria-selected=${selected ? "true" : "false"}
-                title=${label}
                 type="button"
                 @click=${() => {
                   closeChatSessionPicker(state);
@@ -822,7 +825,6 @@ function renderChatAgentSelect(
       <select
         data-chat-agent-filter="true"
         aria-label=${t("chat.selectors.agentFilter")}
-        title=${selectedLabel}
         .value=${activeAgentId}
         ?disabled=${!state.connected}
         @change=${(e: Event) => {
@@ -1635,11 +1637,12 @@ export function resolveSessionOptionGroups(
         )
       : ensureGroup("other", "Other Sessions");
     const scopeLabel = normalizeOptionalString(parsed?.rest) ?? key;
+    const label = resolveSessionScopedOptionLabel(key, row, parsed?.rest);
     group.options.push({
       key,
-      label: resolveSessionScopedOptionLabel(key, row, parsed?.rest),
+      label,
       scopeLabel,
-      title: key,
+      title: label,
     });
   };
 
@@ -1654,6 +1657,17 @@ export function resolveSessionOptionGroups(
       continue;
     }
     if (hideCron && row.key !== sessionKey && isCronSessionKey(row.key)) {
+      continue;
+    }
+    // A newly-created dashboard session has no user-visible identity until
+    // its first prompt is auto-named. Keep the active one selectable, but do
+    // not let abandoned empty sessions accumulate in the picker.
+    const hasUserVisibleName =
+      [row.label, row.displayName].some((value) => {
+        const normalized = normalizeOptionalString(value);
+        return Boolean(normalized && normalized !== row.key);
+      });
+    if (row.key !== sessionKey && isDashboardSessionKey(row.key) && !hasUserVisibleName) {
       continue;
     }
     const isSubagent = isSubagentSessionKey(row.key) || Boolean(row.spawnedBy);

@@ -24,6 +24,11 @@ export type SessionKeyInfo = {
   fallbackName: string;
 };
 
+/** UI-created scratch conversations use this backend key shape. */
+export function isDashboardSessionKey(key: string): boolean {
+  return /^agent:[^:]+:dashboard(?::|$)/i.test(key.trim());
+}
+
 function capitalize(s: string): string {
   return s.charAt(0).toUpperCase() + s.slice(1);
 }
@@ -65,6 +70,12 @@ export function parseSessionKey(key: string): SessionKeyInfo {
     const channel = groupMatch[1];
     const channelLabel = CHANNEL_LABELS[channel] ?? capitalize(channel);
     return { prefix: "", fallbackName: `${channelLabel} Group` };
+  }
+
+  // Dashboard sessions are implementation details until their first prompt
+  // gives them a durable label. Never expose the random backend id as UI.
+  if (isDashboardSessionKey(key)) {
+    return { prefix: "", fallbackName: "New Session" };
   }
 
   // Channel-prefixed legacy keys, for example "imessage:g-...".

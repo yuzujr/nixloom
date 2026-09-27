@@ -340,6 +340,12 @@ describe("resolveSessionDisplayName", () => {
     expect(resolveSessionDisplayName("main")).toBe("Main Session");
   });
 
+  it("does not expose the random id of an untitled dashboard session", () => {
+    expect(resolveSessionDisplayName("agent:main:dashboard:db4f6aee-8ff2-4303-98d6-4668a75112db")).toBe(
+      "New Session",
+    );
+  });
+
   it("returns 'Subagent:' for subagent key without row", () => {
     expect(resolveSessionDisplayName("agent:main:subagent:abc-123")).toBe("Subagent:");
   });
@@ -662,6 +668,20 @@ describe("resolveSessionOptionGroups", () => {
     });
 
     expect(labels).toEqual(["main", "Bug triage"]);
+  });
+
+  it("hides abandoned untitled dashboard sessions but keeps the active draft", () => {
+    const labels = labelsForSessionOptions({
+      sessionKey: "agent:main:dashboard:current",
+      sessions: [
+        row({ key: "agent:main:main" }),
+        row({ key: "agent:main:dashboard:old-empty" }),
+        row({ key: "agent:main:dashboard:current" }),
+        row({ key: "agent:main:dashboard:named", label: "Plan the trip" }),
+      ],
+    });
+
+    expect(labels).toEqual(["main", "New Session", "Plan the trip"]);
   });
 
   it("keeps bare legacy sessions scoped to the default agent only", () => {

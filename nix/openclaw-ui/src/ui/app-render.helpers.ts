@@ -254,7 +254,7 @@ export function renderTab(state: AppViewState, tab: Tab, opts?: { collapsed?: bo
         }
         state.setTab(tab);
       }}
-      title=${titleForTab(tab)}
+      title=${collapsed ? titleForTab(tab) : nothing}
     >
       <span class="nav-item__icon" aria-hidden="true">${icons[iconForTab(tab)]}</span>
       ${!collapsed ? html`<span class="nav-item__text">${titleForTab(tab)}</span>` : nothing}
@@ -339,10 +339,10 @@ function renderChatAutoScrollToggle(state: AppViewState, options: { labelled?: b
         : ""}"
       data-chat-auto-scroll-toggle="true"
       data-chat-auto-scroll-mode=${mode}
-      data-tooltip=${label}
+      data-tooltip=${options.labelled ? nothing : label}
       aria-label=${label}
       aria-pressed=${active}
-      title=${label}
+      title=${options.labelled ? nothing : label}
       @click=${() => {
         state.applySettings({
           ...state.settings,
@@ -418,7 +418,6 @@ export function renderChatControls(state: AppViewState) {
       <button
         class="chat-settings-chip ${settingsOpen ? "chat-settings-chip--open" : ""}"
         type="button"
-        title=${settingsTitle}
         aria-label=${settingsTitle}
         aria-expanded=${settingsOpen}
         aria-controls="chat-composer-settings-popover"
@@ -454,9 +453,7 @@ export function renderChatControls(state: AppViewState) {
                   void handleChatManualRefresh(state as ChatRefreshHost);
                 }
               }}
-              title=${t("common.refresh")}
               aria-label=${t("common.refresh")}
-              data-tooltip=${t("common.refresh")}
             >
               ${icons.refresh}
               <span class="chat-settings-action__text">${t("common.refresh")}</span>
@@ -475,9 +472,7 @@ export function renderChatControls(state: AppViewState) {
                 });
               }}
               aria-pressed=${showThinking}
-              title=${thinkingLabel}
               aria-label=${thinkingLabel}
-              data-tooltip=${thinkingLabel}
             >
               ${icons.brain}
               <span class="chat-settings-action__text">${t("cron.form.thinking")}</span>
@@ -495,9 +490,7 @@ export function renderChatControls(state: AppViewState) {
                 });
               }}
               aria-pressed=${showToolCalls}
-              title=${toolCallsLabel}
               aria-label=${toolCallsLabel}
-              data-tooltip=${toolCallsLabel}
             >
               ${toolCallsIcon}
               <span class="chat-settings-action__text">${t("agents.tabs.tools")}</span>
@@ -508,9 +501,7 @@ export function renderChatControls(state: AppViewState) {
                 state.sessionsHideCron = !hideCron;
               }}
               aria-pressed=${hideCron}
-              title=${cronLabel}
               aria-label=${cronLabel}
-              data-tooltip=${cronLabel}
             >
               ${renderCronFilterIcon(hiddenCronCount)}
               <span class="chat-settings-action__text">${t("cron.jobList.history")}</span>
