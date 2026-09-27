@@ -1787,5 +1787,9 @@ function resolveSessionScopedOptionLabel(
     return resolveSessionDisplayName(key, row);
   }
 
+  if (isDashboardSessionKey(key)) {
+    return resolveSessionDisplayName(key, row);
+  }
+
   return base;
 }

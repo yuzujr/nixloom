@@ -8,10 +8,16 @@ let
     root = ./.;
     fileset = ./openclaw-ui;
   };
+  # The pinned nixpkgs recipe has a stale fixed-output hash for the
+  # OpenClaw lockfile.  Keep the correction local to NixLoom until it is
+  # fixed upstream.
+  openclawBase = pkgs.openclaw.overrideAttrs (_: {
+    pnpmDepsHash = "sha256-PiqvOlKKOtrimQpoNc+zGeyT00ptT4UAla1midPlVlw=";
+  });
   # Include the complete owned UI source in the service worker version.  A
   # package version alone is insufficient because NixLoom can update its UI
   # independently of the pinned OpenClaw gateway release.
-  openclawUiBuildId = "nixloom-${pkgs.openclaw.version}-${builtins.substring 0 16 (builtins.baseNameOf uiSource)}";
+  openclawUiBuildId = "nixloom-${openclawBase.version}-${builtins.substring 0 16 (builtins.baseNameOf uiSource)}";
   nixloom = pkgs.python3Packages.buildPythonApplication {
     pname = "nixloom";
     version = "0.2.0";
@@ -67,10 +73,9 @@ let
     '';
   };
 
-  # Keep the core and bundled Tavily plugin on the nixpkgs release line.  The
-  # locked nixpkgs already carries the fixed-output hash for OpenClaw 2026.6.33;
-  # an earlier override pinning a different pnpmDepsHash is gone because it went
-  # stale when nixpkgs-unstable moved and only surfaced on the first rebuild.
+  # Keep the core and bundled Tavily plugin on the nixpkgs release line. The
+  # OpenClaw override above is temporary and can be removed once nixpkgs carries
+  # the corrected fixed-output hash for OpenClaw 2026.6.33.
   #
   # NixLoom owns the complete Control UI source tree at
   # nix/openclaw-ui.  It is built against the exact OpenClaw source and pnpm
@@ -93,10 +98,10 @@ let
   # disagree about whether an already-connected operator is authorized.
   # Keep these release-specific substitutions fail-closed: an upstream bundle
   # layout change must fail the build rather than silently change semantics.
-  openclaw = pkgs.runCommand "nixloom-openclaw-${pkgs.openclaw.version}" {
+  openclaw = pkgs.runCommand "nixloom-openclaw-${openclawBase.version}" {
     nativeBuildInputs = [ pkgs.makeWrapper ];
   } ''
-    cp -a ${pkgs.openclaw}/. "$out"
+    cp -a ${openclawBase}/. "$out"
     chmod -R u+w "$out"
     substituteInPlace "$out/lib/openclaw/dist/image-generation-provider-B110FEwo.js" \
       --replace-fail 'const DEFAULT_SIZE = "1024x1024";' 'const DEFAULT_SIZE = "512x512";'
@@ -123,8 +128,8 @@ let
 
   openclawUi = pkgs.stdenvNoCC.mkDerivation {
     pname = "nixloom-openclaw-ui";
-    version = pkgs.openclaw.version;
-    src = pkgs.openclaw.src;
+    version = openclawBase.version;
+    src = openclawBase.src;
     nativeBuildInputs = [ pkgs.nodejs-slim_22 ];
     doCheck = true;
     postPatch = ''
@@ -134,7 +139,7 @@ let
       # The packaged gateway already contains the exact dependency closure
       # with which it was built.  Reusing it avoids fetching every optional
       # cross-platform binary in OpenClaw's monorepo just to run Vite.
-      cp -a --reflink=auto ${pkgs.openclaw}/lib/openclaw/node_modules ./node_modules
+      cp -a --reflink=auto ${openclawBase}/lib/openclaw/node_modules ./node_modules
       chmod -R u+w node_modules
     '';
     buildPhase = ''
