@@ -46,7 +46,7 @@ describe("tool-cards", () => {
     const blocks = Array.from(container.querySelectorAll(".chat-tool-card__block"));
     expect(
       blocks.map((block) => block.querySelector(".chat-tool-card__block-label")?.textContent),
-    ).toEqual(["Tool input", "Tool output"]);
+    ).toEqual(["输入参数", "执行结果"]);
     expect(blocks.map((block) => block.querySelector("code")?.textContent)).toEqual([
       '{\n  "url": "https://example.com"\n}',
       "Opened page",
@@ -71,7 +71,7 @@ describe("tool-cards", () => {
     const blocks = Array.from(container.querySelectorAll(".chat-tool-card__block"));
     expect(
       blocks.map((block) => block.querySelector(".chat-tool-card__block-label")?.textContent),
-    ).toEqual(["Tool input"]);
+    ).toEqual(["输入参数"]);
     expect(blocks[0]?.querySelector("code")?.textContent).toBe(
       '{\n  "mode": "session",\n  "thread": true\n}',
     );
@@ -243,7 +243,7 @@ describe("tool-cards", () => {
     expect(rawToggle).toBeInstanceOf(HTMLButtonElement);
     expect(rawBody).toBeInstanceOf(HTMLElement);
     expect([...rawToggle!.classList]).toEqual(["chat-tool-card__raw-toggle"]);
-    expect(rawToggle!.textContent?.trim()).toBe("Raw details");
+    expect(rawToggle!.textContent?.trim()).toBe("查看原始输出");
     expect(rawToggle!.getAttribute("aria-expanded")).toBe("false");
     expect(rawBody!.hidden).toBe(true);
 
@@ -251,7 +251,7 @@ describe("tool-cards", () => {
 
     expect(rawToggle!.getAttribute("aria-expanded")).toBe("true");
     expect(rawBody!.hidden).toBe(false);
-    expect(rawBody!.querySelector(".chat-tool-card__block-label")?.textContent).toBe("Tool output");
+    expect(rawBody!.querySelector(".chat-tool-card__block-label")?.textContent).toBe("执行结果");
     expect(JSON.parse(rawBody!.querySelector("code")?.textContent ?? "{}")).toEqual({
       kind: "canvas",
       presentation: {
@@ -394,7 +394,7 @@ describe("tool-cards", () => {
       container,
     );
 
-    expect(container.textContent).toContain("Tool error");
+    expect(container.textContent).toContain("错误详情");
     expect(container.textContent).not.toMatch(/\bTool output\b/);
     const summaryButton = container.querySelector("button.chat-tool-msg-summary");
     expect(summaryButton?.classList.contains("chat-tool-msg-summary--error")).toBe(true);
@@ -418,7 +418,7 @@ describe("tool-cards", () => {
       container,
     );
 
-    expect(container.textContent).toContain("Tool error");
+    expect(container.textContent).toContain("错误详情");
     expect(container.textContent).not.toMatch(/\bTool output\b/);
     expect(container.querySelector(".chat-tool-msg-summary--error")).not.toBeNull();
     expect(container.querySelector(".chat-tool-card--error")).not.toBeNull();
@@ -438,7 +438,7 @@ describe("tool-cards", () => {
       container,
     );
 
-    expect(container.textContent).toContain("Tool error");
+    expect(container.textContent).toContain("错误详情");
     expect(container.textContent).not.toMatch(/\bTool output\b/);
     const summaryButton = container.querySelector("button.chat-tool-msg-summary");
     expect(summaryButton?.classList.contains("chat-tool-msg-summary--error")).toBe(true);
@@ -460,7 +460,7 @@ describe("tool-cards", () => {
       container,
     );
 
-    expect(container.textContent).toContain("Tool error");
+    expect(container.textContent).toContain("错误详情");
     expect(container.textContent).not.toMatch(/\bTool output\b/);
     expect(container.querySelector(".chat-tool-msg-summary--error")).not.toBeNull();
     expect(container.querySelector(".chat-tool-card--error")).not.toBeNull();
@@ -568,8 +568,8 @@ describe("tool-cards", () => {
       container,
     );
 
-    expect(container.textContent).toContain("Tool output");
-    expect(container.textContent).not.toContain("Tool error");
+    expect(container.textContent).toContain("执行结果");
+    expect(container.textContent).not.toContain("错误详情");
     expect(container.querySelector(".chat-tool-msg-summary--error")).toBeNull();
     expect(container.querySelector(".chat-tool-card__status-badge")).toBeNull();
   });

@@ -1241,6 +1241,29 @@ describe("handleChatEvent", () => {
     expect(state.lastError).toBe('No API key found for provider "openai".');
   });
 
+  it("keeps failed tool commands in the transcript instead of showing a global error banner", () => {
+    const state = createState({
+      sessionKey: "main",
+      chatRunId: "run-1",
+      chatMessages: [],
+    });
+    const errorMessage = "🛠️ run which adb → run nix-store --version → run adb version failed";
+    const payload: ChatEventPayload = {
+      runId: "run-1",
+      sessionKey: "main",
+      state: "error",
+      errorMessage,
+    };
+
+    expect(handleChatEvent(state, payload)).toBe("error");
+    expect(state.lastError).toBeNull();
+    expect(state.chatMessages).toHaveLength(1);
+    expect(state.chatMessages[0]).toMatchObject({
+      role: "assistant",
+      content: [{ type: "toolresult", name: "exec", text: errorMessage, isError: true }],
+    });
+  });
+
   it("keeps streamed assistant text visible when an error ends the run", () => {
     const existingMessage = {
       role: "user",

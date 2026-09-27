@@ -552,7 +552,7 @@ export function renderRawOutputToggle(text: string) {
         aria-expanded="false"
         @click=${handleRawDetailsToggle}
       >
-        <span>Raw details</span>
+        <span>查看原始输出</span>
         <span class="chat-tool-card__raw-toggle-icon">${icons.chevronDown}</span>
       </button>
       <div class="chat-tool-card__raw-body" hidden>
@@ -777,7 +777,7 @@ export function renderExpandedToolCardContent(
       ${detail ? html`<div class="chat-tool-card__detail">${detail}</div>` : nothing}
       ${hasInput
         ? renderToolDataBlock({
-            label: "Tool input",
+            label: "输入参数",
             text: card.inputText!,
             expanded: true,
           })
@@ -786,7 +786,7 @@ export function renderExpandedToolCardContent(
         ? card.preview
           ? html`${visiblePreview} ${renderRawOutputToggle(card.outputText!)}`
           : renderToolDataBlock({
-              label: isError ? "Tool error" : "Tool output",
+              label: isError ? "错误详情" : "执行结果",
               text: card.outputText!,
               expanded: true,
             })

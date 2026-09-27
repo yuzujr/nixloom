@@ -541,25 +541,13 @@ export function renderMessageGroup(group: MessageGroup, opts: RenderMessageGroup
         : toolLabels.length <= 3
           ? toolLabels.join(", ")
           : `${toolLabels.slice(0, 2).join(", ")} +${toolLabels.length - 2} more`;
-    const hasError = cards.some(isToolCardError);
+    const errorCount = cards.filter(isToolCardError).length;
+    const hasError = errorCount > 0;
     const activityDisclosureId = `activity:${group.key}`;
     const activityExpanded = opts.isToolMessageExpanded?.(activityDisclosureId) ?? hasError;
 
     return html`
       <div class="chat-group tool chat-group--activity">
-        ${renderChatAvatar(
-          group.role,
-          {
-            name: assistantName,
-            avatar: opts.assistantAvatar ?? null,
-          },
-          {
-            name: opts.userName ?? null,
-            avatar: opts.userAvatar ?? null,
-          },
-          opts.basePath,
-          opts.assistantAttachmentAuthToken,
-        )}
         <div class="chat-group-messages">
           <div class="chat-activity-group ${activityExpanded ? "is-open" : ""}">
             <button
@@ -573,11 +561,13 @@ export function renderMessageGroup(group: MessageGroup, opts: RenderMessageGroup
             >
               <span class="chat-activity-group__icon">${icons.activity}</span>
               <span class="chat-activity-group__label"
-                >Activity: ${toolCount} tool${toolCount === 1 ? "" : "s"}</span
+                >已执行 ${toolCount} 个操作</span
               >
               <span class="chat-activity-group__preview">${preview}</span>
               ${hasError
-                ? html`<span class="chat-activity-group__badge">${icons.x}<span>Error</span></span>`
+                ? html`<span class="chat-activity-group__badge"
+                    >${icons.x}<span>${errorCount} 个失败</span></span
+                  >`
                 : nothing}
               <span
                 class="collapse-chevron ${activityExpanded ? "" : "collapse-chevron--collapsed"}"
@@ -599,11 +589,6 @@ export function renderMessageGroup(group: MessageGroup, opts: RenderMessageGroup
                   </div>
                 `
               : nothing}
-          </div>
-          <div class="chat-group-footer">
-            <span class="chat-sender-name">Activity</span>
-            ${renderChatTimestamp(group.timestamp)}
-            ${opts.onDelete ? renderDeleteButton(opts.onDelete, "right") : nothing}
           </div>
         </div>
       </div>

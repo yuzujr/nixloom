@@ -1087,6 +1087,22 @@ function normalizeFinalAssistantMessage(message: unknown): Record<string, unknow
   });
 }
 
+/**
+ * A failed command inside an agent run is useful transcript context, but it is
+ * not a Control UI failure. Keep it in the chat/tool stream instead of
+ * promoting it to the page-level error banner.
+ */
+export function isToolExecutionErrorMessage(value: string | null | undefined): boolean {
+  const message = value?.trim();
+  if (!message) {
+    return false;
+  }
+  return (
+    /^(?:[\u2692\u{1f527}\u{1f6e0}]\ufe0f?\s*)?run\s+.+\s+failed\.?$/isu.test(message) ||
+    /(?:^|\s)→\s*run\s+.+\s+failed\.?$/isu.test(message)
+  );
+}
+
 function buildErrorAssistantMessage(payload: ChatEventPayload): Record<string, unknown> | null {
   const normalized = normalizeFinalAssistantMessage(payload.message);
   if (normalized && !shouldHideAssistantChatMessage(normalized)) {
@@ -1095,6 +1111,13 @@ function buildErrorAssistantMessage(payload: ChatEventPayload): Record<string, u
   const error = payload.errorMessage?.trim();
   if (!error) {
     return null;
+  }
+  if (isToolExecutionErrorMessage(error)) {
+    return {
+      role: "assistant",
+      content: [{ type: "toolresult", name: "exec", text: error, isError: true }],
+      timestamp: Date.now(),
+    };
   }
   return {
     role: "assistant",
@@ -1402,7 +1425,8 @@ export function handleChatEvent(state: ChatState, payload?: ChatEventPayload) {
       }
     }
     reconcileTerminalRun("interrupted", "failed");
-    setChatError(state, payload.errorMessage ?? "chat error");
+    const errorMessage = payload.errorMessage ?? "chat error";
+    setChatError(state, isToolExecutionErrorMessage(errorMessage) ? null : errorMessage);
   }
   return payload.state;
 }

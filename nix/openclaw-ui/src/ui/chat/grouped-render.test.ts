@@ -1016,9 +1016,11 @@ describe("grouped chat rendering", () => {
     });
 
     const activity = expectElement(container, ".chat-activity-group__summary", HTMLButtonElement);
-    expect(activity.textContent).toContain("Activity: 2 tools");
+    expect(activity.textContent).toContain("已执行 2 个操作");
     expect(activity.textContent).toContain("read_file");
     expect(activity.textContent).toContain("run_command");
+    expect(container.querySelector(".chat-group--activity .chat-avatar")).toBeNull();
+    expect(container.querySelector(".chat-group--activity .chat-group-footer")).toBeNull();
     expect(container.querySelector(".chat-tool-msg-body")).toBeNull();
   });
 
@@ -1136,7 +1138,7 @@ describe("grouped chat rendering", () => {
     const blocks = Array.from(container.querySelectorAll(".chat-tool-card__block"));
     expect(
       blocks.map((block) => block.querySelector(".chat-tool-card__block-label")?.textContent),
-    ).toEqual(["Tool input", "Tool output"]);
+    ).toEqual(["输入参数", "执行结果"]);
     expect(blocks.map((block) => block.querySelector("code")?.textContent)).toEqual([
       '{\n  "url": "https://example.com"\n}',
       "Opened page",
@@ -1174,7 +1176,7 @@ describe("grouped chat rendering", () => {
       isToolMessageExpanded: () => true,
     });
 
-    expect(container.querySelector(".chat-tool-card__block-label")?.textContent).toBe("Tool input");
+    expect(container.querySelector(".chat-tool-card__block-label")?.textContent).toBe("输入参数");
     expect(container.querySelector(".chat-tool-card__block code")?.textContent).toBe(
       '{\n  "mode": "session",\n  "thread": true\n}',
     );
@@ -1267,7 +1269,7 @@ describe("grouped chat rendering", () => {
     const blocks = Array.from(container.querySelectorAll(".chat-tool-card__block"));
     expect(
       blocks.map((block) => block.querySelector(".chat-tool-card__block-label")?.textContent),
-    ).toEqual(["Tool input", "Tool error"]);
+    ).toEqual(["输入参数", "错误详情"]);
     expect(blocks[0]?.querySelector("code")?.textContent).toBe(
       '{\n  "mode": "session",\n  "thread": true\n}',
     );
@@ -1423,7 +1425,7 @@ describe("grouped chat rendering", () => {
       isToolMessageExpanded: () => true,
     });
 
-    expect(container.querySelector(".chat-tool-card__block-label")?.textContent).toBe("Tool input");
+    expect(container.querySelector(".chat-tool-card__block-label")?.textContent).toBe("输入参数");
     expect(container.querySelector(".chat-tool-card__block code")?.textContent).toBe(
       '{\n  "mode": "session",\n  "thread": true\n}',
     );
@@ -2290,7 +2292,7 @@ describe("grouped chat rendering", () => {
       "Inline demo",
     );
     expect(container.querySelector(".chat-tool-card__raw-toggle")?.textContent?.trim()).toBe(
-      "Raw details",
+      "查看原始输出",
     );
 
     renderCanvas({ embedSandboxMode: "trusted", suffix: "trusted" });
