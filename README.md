@@ -266,6 +266,21 @@ cache so prior graphs do not accumulate VRAM. The default is 0.5 GiB beyond curr
 actual desktop use before reducing it. The 8 GB deployment uses Klein 4B NVFP4;
 a larger model can be configured by changing its weights and matching encoder.
 
-H3 uses `h3-text-to-video` and `h3-image-to-video` browser workflows. Its default
-124 frames are approximately five seconds at 24 fps. Large video models also
-consume host RAM; low VRAM offloading can increase latency substantially.
+H3 uses `h3-text-to-video` and `h3-image-to-video` browser workflows. NixLoom
+generates these from its managed graphs and the running ComfyUI node schema;
+they appear in the browser workflow list when `video.enabled` is true. The four
+required H3 weights have pinned URLs, sizes, and SHA-256 hashes in the shipped
+asset catalog. Download them explicitly, then enable `video.enabled` in the
+YAML config:
+
+```bash
+nixloom models download \
+  minimax_h3_nvfp4 \
+  qwen3vl_32b_minimax_h3_nvfp4_awq \
+  minimax_h3_video_vae_fp16 \
+  minimax_h3_audio_vae_fp32
+```
+
+Its default 124 frames are approximately five seconds at 24 fps. Large video
+models also consume host RAM; low VRAM offloading can increase latency
+substantially.

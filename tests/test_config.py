@@ -13,6 +13,24 @@ class ConfigTests(unittest.TestCase):
         config = Config.load(paths)
         self.assertEqual(config.string("llm.id"), "qwen")
 
+    def test_video_models_are_pinned_in_the_project_asset_catalog(self) -> None:
+        paths = RuntimePaths.from_environment(str(ROOT / "config.yaml"))
+        config = Config.load(paths)
+        assets = {
+            asset["path"]: asset for asset in config.get("assets").values()
+        }
+        expected = {
+            "model_file": "diffusion_models",
+            "text_encoder": "text_encoders",
+            "video_vae": "vae",
+            "audio_vae": "vae",
+        }
+        for setting, directory in expected.items():
+            filename = config.string(f"video.{setting}")
+            path = f"comfyui/models/{directory}/{filename}"
+            self.assertIn(path, assets)
+            self.assertEqual(len(assets[path]["sha256"]), 64)
+
     def test_output_limit_must_fit_context(self) -> None:
         paths = RuntimePaths.from_environment(str(ROOT / "config.yaml"))
         config = Config.load(paths)

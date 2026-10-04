@@ -102,6 +102,26 @@ assets:
     url: https://huggingface.co/Comfy-Org/flux2-klein-4B/resolve/5f526678002e43af5551dadb73ce2e8c91b43afe/split_files/vae/flux2-vae.safetensors
     size: 336211292
     sha256: 868fe7b343cc8f3a19dbcfcafbc3d5f888802be3f89bd81b65b3621a066ce8f3
+  minimax_h3_nvfp4:
+    path: comfyui/models/diffusion_models/MiniMax-H3_FL2VA-NVFP4.safetensors
+    url: https://huggingface.co/DmitryDB/MiniMax-H3-ComfyUI-Quants/resolve/06aba4816457400d1dcb12ffd77e37499c8116b1/FL2VA/MiniMax-H3_FL2VA-NVFP4.safetensors
+    size: 11663443448
+    sha256: 1519c19084ba0387a5f5c3983fcf32aee5923045de1ef4e44c04ca2e2ba486e5
+  qwen3vl_32b_minimax_h3_nvfp4_awq:
+    path: comfyui/models/text_encoders/qwen3vl_32b_minimax_h3_nvfp4_awq.safetensors
+    url: https://huggingface.co/Comfy-Org/MiniMax-H3/resolve/e5eb578a89295337b8ff433a035929ce0279e0b6/text_encoders/qwen3vl_32b_minimax_h3_nvfp4_awq.safetensors
+    size: 15687142551
+    sha256: 35a88d51044231fe332301d7a62aa81e3f2cba62febeb446e2c1e3e0ef76f2c6
+  minimax_h3_video_vae_fp16:
+    path: comfyui/models/vae/minimax_h3_video_vae_fp16.safetensors
+    url: https://huggingface.co/Comfy-Org/MiniMax-H3/resolve/e5eb578a89295337b8ff433a035929ce0279e0b6/vae/minimax_h3_video_vae_fp16.safetensors
+    size: 5207808496
+    sha256: 7c1f131492e7eddacaac9069a61b81bdd39de5cc96561e677c5eab1cdce5e522
+  minimax_h3_audio_vae_fp32:
+    path: comfyui/models/vae/minimax_h3_audio_vae_fp32.safetensors
+    url: https://huggingface.co/Comfy-Org/MiniMax-H3/resolve/e5eb578a89295337b8ff433a035929ce0279e0b6/vae/minimax_h3_audio_vae_fp32.safetensors
+    size: 605254808
+    sha256: 8e505d95dd1561d47abd43d4238fd40d9bb1ae9e147ed0a4cba778d76ae4db48
 video:
   enabled: false
   model_file: MiniMax-H3_FL2VA-NVFP4.safetensors
