@@ -11,5 +11,5 @@ export function allowsManagedAccess(request, authority) {
     if (loopback(address) && ['127.0.0.1', 'localhost', '[::1]'].includes(url.hostname)) return true;
     const hosts = JSON.parse(process.env.NIXLOOM_DSH_TAILNET_HOSTS || '[]');
     const peers = JSON.parse(process.env.NIXLOOM_DSH_TAILNET_PEERS || '[]');
-    return isIP(address || '') !== 0 && hosts.includes(url.host) && peers.includes(address);
+    return isIP(address || '') !== 0 && hosts.includes(url.host) && (loopback(address) || peers.includes(address));
 }

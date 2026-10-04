@@ -411,6 +411,7 @@ def run(config: Config, paths: RuntimePaths, *, dry_run: bool = False) -> None:
         port = config.integer("ports.dsh", 3080)
         hosts = [
             f"{identity['hostname']}:{port}",
+            f"{identity['hostname'].split('.', 1)[0]}:{port}",
             *[
                 f"{address}:{port}"
                 for address in identity["addresses"]

@@ -188,6 +188,26 @@ class DshTests(unittest.TestCase):
         self.assertEqual(identity["peers"], ["100.64.0.2", "100.64.0.3"])
         self.assertEqual(identity["hostname"], "laptop.example.ts.net")
 
+    def test_tailnet_accepts_short_and_full_magicdns_names(self) -> None:
+        with (
+            patch("nixloom.dsh.require_prepared"),
+            patch("nixloom.dsh.os.chdir"),
+            patch("nixloom.dsh.os.execvpe") as execute,
+            patch.dict("os.environ", {"NIXLOOM_DSH_TAILNET": "1"}),
+            patch("nixloom.dsh.tailnet_identity", return_value={
+                "hostname": "laptop.example.ts.net",
+                "addresses": ["100.64.0.2"],
+                "peers": ["100.64.0.3"],
+            }),
+        ):
+            dsh.run(self.config, self.paths)
+        hosts = ["laptop.example.ts.net:3080", "laptop:3080", "100.64.0.2:3080"]
+        command_args = execute.call_args.args[1]
+        self.assertEqual(command_args[command_args.index("--trusted-host") + 1:], hosts)
+        self.assertEqual(
+            json.loads(execute.call_args.args[2]["NIXLOOM_DSH_TAILNET_HOSTS"]), hosts
+        )
+
     def test_missing_installation_is_actionable_and_does_not_download(self) -> None:
         with (
             patch("nixloom.dsh.subprocess.run") as run,

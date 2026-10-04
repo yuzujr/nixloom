@@ -7,11 +7,15 @@ test('local and Tailnet admission rejects Host spoofing and other users', () => 
     const saved = { ...process.env };
     try {
         process.env.NIXLOOM_DSH_LOCAL_ACCESS = '1';
-        process.env.NIXLOOM_DSH_TAILNET_HOSTS = '["laptop.example.ts.net:3080","100.64.0.2:3080"]';
+        process.env.NIXLOOM_DSH_TAILNET_HOSTS = '["laptop.example.ts.net:3080","laptop:3080","100.64.0.2:3080"]';
         process.env.NIXLOOM_DSH_TAILNET_PEERS = '["100.64.0.3"]';
         const check = (address, host) => allowsManagedAccess({ socket: { remoteAddress: address } }, host);
         assert.equal(check('127.0.0.1', '127.0.0.1:3080'), true);
+        assert.equal(check('127.0.0.1', 'laptop:3080'), true);
+        assert.equal(check('::1', 'laptop.example.ts.net:3080'), true);
+        assert.equal(check('127.0.0.1', 'evil.example:3080'), false);
         assert.equal(check('100.64.0.3', 'laptop.example.ts.net:3080'), true);
+        assert.equal(check('100.64.0.3', 'laptop:3080'), true);
         assert.equal(check('::ffff:100.64.0.3', '100.64.0.2:3080'), true);
         assert.equal(check('100.64.0.4', 'laptop.example.ts.net:3080'), false);
         assert.equal(check('100.64.0.3', '127.0.0.1:3080'), false);
