@@ -482,9 +482,7 @@ def command_test(args: argparse.Namespace) -> None:
     paths, config = _context(args.config)
     checks = ["chat", "reasoning", "vision"]
     if config.boolean("images.enabled") and not args.skip_image:
-        checks.extend(["image", "swap-back"])
-    if not args.skip_agent:
-        checks.append("agent tool call")
+        checks.extend(["image generation", "image editing", "swap-back"])
     print("Running live checks: " + ", ".join(checks), flush=True)
     operations.live_test(
         config,
@@ -628,7 +626,9 @@ Run 'nixloom COMMAND --help' for details about a command.""",
         description="Run live end-to-end regression checks.",
         usage="%(prog)s [OPTION]...",
     )
-    test.add_argument("--skip-image", action="store_true", help="skip image generation")
+    test.add_argument(
+        "--skip-image", action="store_true", help="skip image generation and editing"
+    )
     test.set_defaults(handler=command_test)
 
     backup = commands.add_parser(

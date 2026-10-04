@@ -13,6 +13,7 @@ from nixloom.cli import (
     command_start,
     command_status,
     command_stop,
+    command_test,
     parser,
     service_parser,
 )
@@ -68,6 +69,19 @@ class CliTests(unittest.TestCase):
         self.assertEqual(args.port, "8080")
         self.assertIsNone(args.config)
         self.assertIs(args.handler, command_service)
+
+    def test_live_test_command_runs_without_unregistered_options(self) -> None:
+        args = parser().parse_args(["test"])
+        output = io.StringIO()
+        with (
+            patch("nixloom.cli._context", return_value=(self.paths, self.config)),
+            patch("nixloom.cli.operations.live_test") as live_test,
+            redirect_stdout(output),
+        ):
+            command_test(args)
+        live_test.assert_called_once_with(self.config, self.paths, skip_image=False)
+        self.assertIn("image generation", output.getvalue())
+        self.assertIn("image editing", output.getvalue())
 
     def test_activation_installs_dsh_before_service_start(self) -> None:
         args = service_parser().parse_args(["dsh", "--prepare-only"])
