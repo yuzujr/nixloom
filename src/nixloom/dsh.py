@@ -30,7 +30,7 @@ def workspace(config: Config, paths: RuntimePaths) -> Path:
     return Path(value) if value else paths.data / "dsh/workspace"
 
 
-def environment(paths: RuntimePaths) -> dict[str, str]:
+def environment(config: Config, paths: RuntimePaths) -> dict[str, str]:
     result = os.environ.copy()
     result.update(
         DSH_HOME=str(paths.state / ".dsh"),
@@ -41,6 +41,7 @@ def environment(paths: RuntimePaths) -> dict[str, str]:
         npm_config_store_dir=str(paths.cache / "dsh/pnpm-store"),
         NARB_NATIVE_CACHE_DIR=str(paths.cache / "dsh/native"),
         DSH_IMAGE_GEN_OPENAI_COMPAT_KEY="nixloom-local",
+        TAVILY_API_KEY=config.string("credentials.tavily_api_key", ""),
     )
     library_path = os.environ.get("NIXLOOM_DSH_LIBRARY_PATH", "")
     if library_path:
@@ -67,44 +68,6 @@ def require_installed(config: Config, paths: RuntimePaths) -> None:
         raise ConfigError(
             "DSH is not installed for this version; rerun Home Manager activation"
         )
-
-
-def web_url(config: Config) -> str:
-    unit = "nixloom-dsh.service"
-    invocation = subprocess.run(
-        ["systemctl", "--user", "show", unit, "-p", "InvocationID", "--value"],
-        check=True,
-        capture_output=True,
-        text=True,
-    ).stdout.strip()
-    if not invocation:
-        raise ConfigError("Chat is stopped. Run `nixloom start`, then `nixloom open`.")
-    journal = subprocess.run(
-        [
-            "journalctl",
-            "--user",
-            "-u",
-            unit,
-            f"_SYSTEMD_INVOCATION_ID={invocation}",
-            "-n",
-            "100",
-            "--output",
-            "cat",
-            "--no-pager",
-        ],
-        check=True,
-        capture_output=True,
-        text=True,
-    ).stdout
-    port = config.integer("ports.dsh", 3080, minimum=1)
-    matches = re.findall(
-        rf"dsh web: (http://127\.0\.0\.1:{port}/\?token=[A-Za-z0-9_-]+)", journal
-    )
-    if not matches:
-        raise ConfigError(
-            "Chat is still starting. Try `nixloom open` again shortly; if it keeps failing, run `nixloom logs dsh`."
-        )
-    return matches[-1]
 
 
 def install(config: Config, paths: RuntimePaths, *, dry_run: bool = False) -> None:
@@ -137,7 +100,7 @@ def install(config: Config, paths: RuntimePaths, *, dry_run: bool = False) -> No
                         *packages,
                     ],
                     check=True,
-                    env=environment(paths),
+                    env=environment(config, paths),
                 )
                 os.replace(app, target)
         elif (
@@ -156,10 +119,9 @@ def install(config: Config, paths: RuntimePaths, *, dry_run: bool = False) -> No
                     packages[-1],
                 ],
                 check=True,
-                env=environment(paths),
+                env=environment(config, paths),
             )
         require_installed(config, paths)
-        _prepare_packages(config, paths)
         prepare(config, paths)
     print(f"DSH installed: {target}")
 
@@ -189,6 +151,7 @@ def managed_settings(config: Config) -> list[dict[str, Any]]:
         ],
     }
     return [
+        {"id": "web", "config": {"searchProvider": "tavily", "fetchProvider": "http"}},
         {"id": "llm-pi-ai", "config": {"providers": {"nixloom": provider}}},
         {
             "id": "agent-default-model",
@@ -239,6 +202,28 @@ def _prepare_packages(config: Config, paths: RuntimePaths) -> None:
     else:
         raise ConfigError(
             "DSH workspace default changed; review the pinned npm version"
+        )
+
+    connection = modules / "@deepseek-ai/dsh-client-connection/lib/index.js"
+    source = connection.read_text(encoding="utf-8")
+    marker = "/* NixLoom loopback access */"
+    if marker not in source:
+        original = "\tisAuthenticated(request) {\n\t\tconst authority = requestAuthority(request.headers);"
+        replacement = (
+            original
+            + "\n\t\t"
+            + marker
+            + '\n\t\tif (process.env.NIXLOOM_DSH_LOCAL_ACCESS === "1" && authority !== void 0 && isLoopbackHostname(new URL("http://" + authority).hostname)) return true;'
+        )
+        display = "authenticatedUrl(baseUrl) {\n\t\tconst url = new URL(baseUrl);"
+        display_replacement = 'authenticatedUrl(baseUrl) {\n\t\tif (process.env.NIXLOOM_DSH_LOCAL_ACCESS === "1") return baseUrl;\n\t\tconst url = new URL(baseUrl);'
+        if source.count(original) != 1 or source.count(display) != 1:
+            raise ConfigError(
+                "DSH connection API changed; review the pinned npm version"
+            )
+        connection.write_text(
+            source.replace(original, replacement).replace(display, display_replacement),
+            encoding="utf-8",
         )
 
 
@@ -299,7 +284,7 @@ def prepare(config: Config, paths: RuntimePaths) -> None:
         command(config, paths, "--profile", "web", "--dump-config"),
         check=True,
         cwd=work,
-        env=environment(paths),
+        env=environment(config, paths),
         stdout=subprocess.DEVNULL,
     )
     profile = paths.state / ".dsh/profiles/web"
@@ -323,11 +308,39 @@ def prepare(config: Config, paths: RuntimePaths) -> None:
         elif link.exists():
             raise ConfigError(f"DSH image plugin path is not a NixLoom link: {link}")
         link.symlink_to(plugin, target_is_directory=True)
-    elif "dsh-image-gen" in bundles:
-        bundles.remove("dsh-image-gen")
+    else:
+        if "dsh-image-gen" in bundles:
+            bundles.remove("dsh-image-gen")
+        plugin = app_directory(config, paths) / "node_modules/dsh-image-gen"
+        dependencies = manifest.get("dependencies", {})
+        if dependencies.get("dsh-image-gen") == f"file:{plugin}":
+            del dependencies["dsh-image-gen"]
+        link = profile / "node_modules/dsh-image-gen"
+        if link.is_symlink() and link.resolve() == plugin.resolve():
+            link.unlink()
     _write_json(manifest_path, manifest)
     patch = profile / "cordis.patch.yml"
     sync_settings(config, patch)
+    rows = yaml.safe_load(patch.read_text(encoding="utf-8"))
+    rows = [row for row in rows if row.get("id") != "nixloom-tavily"]
+    rows.append(
+        {
+            "insert": [
+                {
+                    "id": "nixloom-tavily",
+                    "name": str(Path(__file__).with_name("dsh_tavily.mjs")),
+                }
+            ]
+        }
+    )
+    # Replace only our previous provider insertion; user plugin rows remain untouched.
+    for row in rows[:-1]:
+        if isinstance(row.get("insert"), list):
+            row["insert"] = [
+                item for item in row["insert"] if item.get("id") != "nixloom-tavily"
+            ]
+    rows = [row for row in rows if row != {"insert": []}]
+    _write_yaml(patch, rows)
     if config.boolean("images.enabled"):
         rows = yaml.safe_load(patch.read_text(encoding="utf-8"))
         row = next((row for row in rows if row.get("id") == "image-gen"), None)
@@ -376,11 +389,15 @@ def run(config: Config, paths: RuntimePaths, *, dry_run: bool = False) -> None:
         file=sys.stderr,
     )
     os.chdir(workspace(config, paths))
-    os.execvpe(args[0], args, environment(paths))
+    values = environment(config, paths)
+    values["NIXLOOM_DSH_LOCAL_ACCESS"] = "1"
+    os.execvpe(args[0], args, values)
 
 
 def invoke(config: Config, paths: RuntimePaths, arguments: list[str]) -> None:
     require_installed(config, paths)
     os.chdir(workspace(config, paths))
+    if arguments[:1] == ["--"]:
+        arguments = arguments[1:]
     args = command(config, paths, *arguments)
-    os.execvpe(args[0], args, environment(paths))
+    os.execvpe(args[0], args, environment(config, paths))

@@ -179,18 +179,11 @@ def environment(config: Config, paths: RuntimePaths) -> dict[str, str]:
         # allowed to reach its local backends and any user-configured endpoint.
         "SILLYTAVERN_PRIVATEADDRESSWHITELIST_ENABLED": "false",
     }
-    password = config.string("sillytavern.auth_password", "")
-    if password:
-        values["SILLYTAVERN_BASICAUTHUSER_USERNAME"] = config.string(
-            "sillytavern.auth_user"
-        )
-        values["SILLYTAVERN_BASICAUTHUSER_PASSWORD"] = password
     return values
 
 
 def command(config: Config) -> list[str]:
-    host = config.string("sillytavern.bind")
-    listen = host not in {"127.0.0.1", "localhost", "::1"}
+    host = "127.0.0.1"
     result = [
         "sillytavern",
         "--port",
@@ -202,20 +195,13 @@ def command(config: Config) -> list[str]:
         "--enableIPv6",
         "false",
         "--listen",
-        str(listen).lower(),
+        "false",
         "--listenAddressIPv4",
         host,
         "--whitelist",
         "false",
     ]
-    result.extend(
-        [
-            "--basicAuthMode",
-            str(
-                bool(config.string("sillytavern.auth_password", "")) and listen
-            ).lower(),
-        ]
-    )
+    result.extend(["--basicAuthMode", "false"])
     return result
 
 
@@ -242,7 +228,7 @@ def run(config: Config, paths: RuntimePaths, *, dry_run: bool = False) -> None:
             )
     except (OSError, ValueError, json.JSONDecodeError) as error:
         print(f"warning: SillyTavern profile sync failed: {error}", file=sys.stderr)
-    host = config.string("sillytavern.bind")
+    host = "127.0.0.1"
     port = config.integer("ports.sillytavern", minimum=1)
     print(f"Starting SillyTavern on http://{host}:{port}", file=sys.stderr)
     os.execvp(launch[0], launch)

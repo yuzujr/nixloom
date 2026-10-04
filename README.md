@@ -90,13 +90,14 @@ a runtime without DSH.
 
 ```bash
 nixloom start
-nixloom open
 nixloom logs dsh
 ```
 
-`nixloom open` opens the current authenticated Web URL in your browser, without
-copying a token from the journal. DSH remembers browser login for 30 days, across
-service restarts. The default port is 3080.
+DSH is served at `http://127.0.0.1:3080/` without a login token. The NixLoom
+launcher enables local access only for its loopback-bound service; the upstream
+Host/Origin checks still protect API requests. Direct DSH invocations retain
+upstream authentication. SillyTavern is also loopback-only and needs no login.
+
 Activation downloads packages only when the configured version or image plugin
 is missing; subsequent activations reuse them. Change `dsh.version` in YAML
 and activate Home Manager again to upgrade. Installation needs network access
@@ -110,7 +111,7 @@ a partial npm release. Service startup does not download packages.
 
 Custom NixLoom XDG paths apply to all four locations. `dsh.workspace` may select
 another absolute directory; a working directory is not an access sandbox.
-`nixloom dsh run plugin --profile web add <package>` runs DSH's plugin manager
+`nixloom dsh plugin --profile web add <package>` runs DSH's plugin manager
 with the same environment as the service. Extra plugins remain user-managed.
 
 NixLoom synchronizes its local model route, context/output limits and Qwen
@@ -122,7 +123,9 @@ Image editing still depends on the capabilities of the selected SD backend.
 The npm launcher exposes Node internals through Node's own loader because the
 upstream native getter does not recognize Nix-built Node. Installation also
 corrects DSH's `/bin/bash` default for NixOS and redirects Web's first-use
-workspace into the configured NixLoom directory. These workarounds belong to NixLoom
+workspace into the configured NixLoom directory. A guarded client-connection patch
+allows token-free access for the loopback-bound managed server while retaining
+upstream Host and Origin validation. These workarounds belong to NixLoom
 and can be removed when upstream supports this environment directly.
 
 ## Configuration
@@ -141,7 +144,8 @@ The important YAML sections are:
 - `llm`: model, vision projector, context, reasoning and sampling settings
 - `images`: stable-diffusion.cpp precision and image profiles
 - `dsh`: pinned npm version and optional workspace
-- `sillytavern`: optional bind, authentication and managed preset
+- `sillytavern`: managed preset
+- `credentials`: Tavily search API key and optional Civitai download token
 - `assets`: pinned downloadable files with exact sizes and SHA-256 hashes
 
 Frontend selection and GPU backend do not live in YAML; those are Nix module
@@ -165,10 +169,14 @@ HTTP health, and the currently loaded model in one table; it exits nonzero when
 the stack is stopped or degraded. `logs all` merges the journals of every
 installed NixLoom service.
 
-`start` and `status` show chat readiness and the next action. Use `nixloom open`
-for DSH or `nixloom open sillytavern` for roleplay. `status --verbose` adds service
-diagnostics. SillyTavern defaults to local-only access without login; setting a
-network bind and password enables password authentication for remote access.
+`start` reports each service and model transition once, followed by the URLs.
+`status` shows one compact service table and model state; `status --verbose`
+adds systemd and health details. Running `nixloom` without arguments shows help.
+
+Web search uses the packaged Tavily provider with `credentials.tavily_api_key`.
+The key is passed only in the server process environment, never written into
+the plugin profile or Nix store. DSH's original `web_search` tool and HTTP fetch
+provider stay in use.
 
 `nixloom test` is the single useful live regression suite. It verifies exact
 chat/reasoning/vision results, decodes a generated image, and swaps back to the

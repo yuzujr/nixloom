@@ -9,7 +9,6 @@ from nixloom.cli import (
     ServiceReport,
     ServiceSpec,
     command_logs,
-    command_open,
     command_service,
     command_start,
     command_status,
@@ -80,12 +79,12 @@ class CliTests(unittest.TestCase):
             result = command_status(SimpleNamespace(config=None))
         rendered = output.getvalue()
         self.assertEqual(result, 0)
-        self.assertIn("Ready to chat — qwen.", rendered)
-        self.assertIn("Chat (DSH): nixloom open", rendered)
-        self.assertIn("Roleplay (SillyTavern): http://127.0.0.1:8000/", rendered)
+        self.assertIn("NixLoom ready · model: qwen (ready)", rendered)
+        self.assertIn("dsh", rendered)
+        self.assertIn("http://127.0.0.1:8000/", rendered)
         self.assertNotIn("/health", rendered)
         self.assertNotIn("active/running", rendered)
-        self.assertNotIn("http://127.0.0.1:3080/", rendered)
+        self.assertIn("http://127.0.0.1:3080/", rendered)
 
     def test_stopped_status_is_actionable_and_nonzero(self) -> None:
         output = io.StringIO()
@@ -99,8 +98,8 @@ class CliTests(unittest.TestCase):
         ):
             result = command_status(SimpleNamespace(config=None))
         self.assertEqual(result, 1)
-        self.assertIn("NixLoom is stopped", output.getvalue())
-        self.assertIn("Start with: nixloom start", output.getvalue())
+        self.assertIn("NixLoom stopped", output.getvalue())
+        self.assertIn("Start: nixloom start", output.getvalue())
 
     def test_start_is_idempotent_when_stack_and_model_are_ready(self) -> None:
         output = io.StringIO()
@@ -117,7 +116,7 @@ class CliTests(unittest.TestCase):
             )
         self.assertEqual(result, 0)
         systemctl.assert_not_called()
-        self.assertIn("already ready", output.getvalue())
+        self.assertIn("NixLoom ready", output.getvalue())
 
     def test_start_waits_for_every_service_before_reporting_ready(self) -> None:
         output = io.StringIO()
@@ -155,21 +154,7 @@ class CliTests(unittest.TestCase):
             ],
         )
         warm.assert_called_once_with(self.config)
-        self.assertIn("Ready to chat", output.getvalue())
-
-    def test_open_passes_current_authenticated_entry_to_browser(self) -> None:
-        url = "http://127.0.0.1:3080/?token=current-token"
-        with (
-            patch("nixloom.cli._context", return_value=(self.paths, self.config)),
-            patch("nixloom.cli._unit_installed", return_value=True),
-            patch("nixloom.cli._unit_state", return_value=("active", "running")),
-            patch("nixloom.cli.dsh.web_url", return_value=url),
-            patch("nixloom.cli.shutil.which", return_value="/bin/xdg-open"),
-            patch("nixloom.cli.subprocess.run") as run,
-            redirect_stdout(io.StringIO()),
-        ):
-            command_open(SimpleNamespace(config=None, frontend="dsh"))
-        run.assert_called_once_with(["/bin/xdg-open", url], check=True)
+        self.assertIn("NixLoom ready", output.getvalue())
 
     def test_stop_is_idempotent(self) -> None:
         output = io.StringIO()

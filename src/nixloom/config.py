@@ -259,11 +259,6 @@ class Config:
                 )
 
         if "sillytavern" in self.value:
-            bind = self.string("sillytavern.bind")
-            if not bind:
-                raise ConfigError("sillytavern.bind must not be empty")
-            self.string("sillytavern.auth_user")
-            self.string("sillytavern.auth_password", "")
             self.string("sillytavern.preset")
         if "dsh" in self.value:
             version = self.string("dsh.version", "0.2.0-rc.2")

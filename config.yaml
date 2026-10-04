@@ -62,12 +62,10 @@ dsh:
   # Empty uses the workspace inside NixLoom's data directory.
   workspace: ""
 sillytavern:
-  bind: 127.0.0.1
-  auth_user: nixloom
-  auth_password: ""
   preset: Qwen 3.6 35B RP
 
 credentials:
+  tavily_api_key: ""
   civitai_api_token: ""
 
 # Optional download catalog used by `nixloom models download`. Paths are

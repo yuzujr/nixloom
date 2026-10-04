@@ -12,7 +12,6 @@ class ConfigTests(unittest.TestCase):
         paths = RuntimePaths.from_environment(str(ROOT / "config.yaml"))
         config = Config.load(paths)
         self.assertEqual(config.string("llm.id"), "qwen")
-        self.assertEqual(config.string("sillytavern.bind"), "127.0.0.1")
 
     def test_output_limit_must_fit_context(self) -> None:
         paths = RuntimePaths.from_environment(str(ROOT / "config.yaml"))

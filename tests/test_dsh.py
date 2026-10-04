@@ -47,6 +47,12 @@ class DshTests(unittest.TestCase):
         controller.write_text(
             "async function defaultWorkspaceDirectory(documentsDirectory, signal, internals = {}) {\n}\n"
         )
+        connection = modules / "@deepseek-ai/dsh-client-connection/lib/index.js"
+        connection.parent.mkdir(parents=True)
+        connection.write_text(
+            "\tisAuthenticated(request) {\n\t\tconst authority = requestAuthority(request.headers);\n}\n"
+            "authenticatedUrl(baseUrl) {\n\t\tconst url = new URL(baseUrl);\n}\n"
+        )
         (app / "node_modules/dsh-image-gen").mkdir()
         profile = self.paths.state / ".dsh/profiles/web"
         profile.mkdir(parents=True)
@@ -96,32 +102,6 @@ class DshTests(unittest.TestCase):
         self.assertEqual(target.read_text(), first)
         self.assertEqual(target.stat().st_mode & 0o777, 0o600)
 
-    def test_web_entry_uses_only_current_service_invocation(self) -> None:
-        results = [
-            subprocess.CompletedProcess([], 0, stdout="current-invocation\n"),
-            subprocess.CompletedProcess(
-                [], 0, stdout="dsh web: http://127.0.0.1:3080/?token=current-token\n"
-            ),
-        ]
-        with patch("nixloom.dsh.subprocess.run", side_effect=results) as run:
-            self.assertEqual(
-                dsh.web_url(self.config), "http://127.0.0.1:3080/?token=current-token"
-            )
-        self.assertIn(
-            "_SYSTEMD_INVOCATION_ID=current-invocation", run.call_args.args[0]
-        )
-
-    def test_missing_current_entry_does_not_reuse_a_stale_url(self) -> None:
-        results = [
-            subprocess.CompletedProcess([], 0, stdout="current-invocation\n"),
-            subprocess.CompletedProcess([], 0, stdout=""),
-        ]
-        with (
-            patch("nixloom.dsh.subprocess.run", side_effect=results),
-            self.assertRaisesRegex(ConfigError, "still starting"),
-        ):
-            dsh.web_url(self.config)
-
     def test_prepare_connects_image_plugin_and_preserves_user_bundles(self) -> None:
         self.fake_install()
         with patch("nixloom.dsh.subprocess.run") as run:
@@ -135,7 +115,7 @@ class DshTests(unittest.TestCase):
             dsh.app_directory(self.config, self.paths) / "node_modules/dsh-image-gen",
         )
         rows = yaml.safe_load((profile / "cordis.patch.yml").read_text())
-        image = next(row["config"] for row in rows if row["id"] == "image-gen")
+        image = next(row["config"] for row in rows if row.get("id") == "image-gen")
         self.assertEqual(
             image["openaiCompatBaseURL"], "http://127.0.0.1:8080/upstream/sd/v1"
         )
@@ -156,8 +136,13 @@ class DshTests(unittest.TestCase):
         ]
         self.assertIn("user-plugin", bundles)
         self.assertNotIn("dsh-image-gen", bundles)
+        manifest = json.loads((profile / "package.json").read_text())
+        self.assertNotIn("dsh-image-gen", manifest["dependencies"])
+        self.assertFalse((profile / "node_modules/dsh-image-gen").is_symlink())
+        insertions = [item for row in yaml.safe_load((profile / "cordis.patch.yml").read_text()) for item in row.get("insert", [])]
+        self.assertEqual([item["id"] for item in insertions], ["nixloom-tavily"])
         rows = yaml.safe_load((profile / "cordis.patch.yml").read_text())
-        self.assertNotIn("image-gen", [row["id"] for row in rows])
+        self.assertNotIn("image-gen", [row.get("id") for row in rows])
 
     def test_web_default_workspace_patch_updates_without_accumulating(self) -> None:
         self.fake_install()

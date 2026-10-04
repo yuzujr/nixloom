@@ -144,7 +144,6 @@ def _service_specs(config: Config) -> list[ServiceSpec]:
                 "dsh",
                 UNIT_NAMES["dsh"],
                 f"http://127.0.0.1:{port}/",
-                frozenset({200, 401}),
             )
         )
     if _unit_installed("sillytavern"):
@@ -154,7 +153,6 @@ def _service_specs(config: Config) -> list[ServiceSpec]:
                 "sillytavern",
                 UNIT_NAMES["sillytavern"],
                 f"http://127.0.0.1:{port}/",
-                frozenset({200, 401}),
             )
         )
     return specs
@@ -207,21 +205,27 @@ def _configured_model_ready(config: Config) -> bool:
 
 
 def _wait_for_endpoint(spec: ServiceSpec, *, timeout: int) -> None:
-    print(f"Starting {SERVICE_LABELS[spec.name]}...", end="", flush=True)
     started = time.monotonic()
+    announced = False
     while time.monotonic() - started < timeout:
         report = _service_report(spec, timeout=1)
         if report.health == "ok":
             elapsed = time.monotonic() - started
-            print(f" ready ({elapsed:.1f}s).", flush=True)
+            if announced:
+                print(f" ready ({elapsed:.1f}s)", flush=True)
             return
         if report.state == "failed":
-            print(" failed.", flush=True)
+            if announced:
+                print(" failed", flush=True)
             raise ConfigError(
                 f"{spec.name} service failed; inspect `nixloom logs {spec.name}`"
             )
+        if not announced and time.monotonic() - started >= 2:
+            print(f"Waiting for {spec.name}...", end="", flush=True)
+            announced = True
         time.sleep(1)
-    print(" timed out.", flush=True)
+    if announced:
+        print(" timeout", flush=True)
     raise ConfigError(
         f"{spec.name} did not become healthy within {timeout}s; "
         f"inspect `nixloom logs {spec.name}`"
@@ -231,7 +235,7 @@ def _wait_for_endpoint(spec: ServiceSpec, *, timeout: int) -> None:
 def _warm_model(config: Config) -> None:
     model = config.string("llm.id")
     port = config.integer("ports.llama", minimum=1)
-    print(f"Loading {model}; the first load may take several minutes...", flush=True)
+    print(f"  {model:<12} loading", end="", flush=True)
     started = time.monotonic()
     operations._json_request(
         f"http://127.0.0.1:{port}/v1/chat/completions",
@@ -243,46 +247,18 @@ def _warm_model(config: Config) -> None:
         },
         900,
     )
-    print(f"Model {model} ready ({time.monotonic() - started:.1f}s).", flush=True)
-
-
-SERVICE_LABELS = {
-    "runtime": "Model engine",
-    "dsh": "Chat (DSH)",
-    "sillytavern": "Roleplay (SillyTavern)",
-}
+    print(f" → loaded ({time.monotonic() - started:.1f}s)", flush=True)
 
 
 def _print_ready_endpoints(reports: list[ServiceReport]) -> None:
     for report in reports:
-        if report.state != "ready" or report.spec.name == "runtime":
-            continue
-        action = "nixloom open" if report.spec.name == "dsh" else report.spec.url
-        print(f"  {SERVICE_LABELS[report.spec.name]}: {action}")
-
-
-def command_open(args: argparse.Namespace) -> None:
-    _, config = _context(args.config)
-    service = args.frontend
-    if not _unit_installed(service) or _unit_state(UNIT_NAMES[service])[0] != "active":
-        raise ConfigError(
-            f"{SERVICE_LABELS[service]} is stopped. Run `nixloom start` first."
-        )
-    url = (
-        dsh.web_url(config)
-        if service == "dsh"
-        else f"http://127.0.0.1:{config.integer('ports.sillytavern', minimum=1)}/"
-    )
-    opener = shutil.which("xdg-open")
-    if not opener:
-        print(f"Open this link in your browser: {url}")
-        return
-    subprocess.run([opener, url], check=True)
-    print(f"Opened {SERVICE_LABELS[service]} in your browser.")
+        if report.state == "ready":
+            endpoint = report.spec.url.removesuffix("/health")
+            print(f"  {report.spec.name:<12} {endpoint}")
 
 
 def command_start(args: argparse.Namespace) -> int:
-    _, config = _context(args.config)
+    paths, config = _context(args.config)
     verb = "restart" if args.restart else "start"
     specs = _service_specs(config)
     if args.dry_run:
@@ -299,12 +275,11 @@ def command_start(args: argparse.Namespace) -> int:
             and all(report.state == "ready" for report in current)
             and _configured_model_ready(config)
         ):
-            print("NixLoom is already ready.")
+            print(f"NixLoom ready · {config.string('llm.id')}")
             _print_ready_endpoints(current)
             return 0
     action = "Restarting" if args.restart else "Starting"
     if any(spec.name == "dsh" for spec in specs):
-        paths = RuntimePaths.from_environment(args.config)
         dsh.require_installed(config, paths)
     print(f"{action} NixLoom...", flush=True)
     operations.systemctl(verb, "nixloom.target")
@@ -320,7 +295,7 @@ def command_start(args: argparse.Namespace) -> int:
     unhealthy = [report.spec.name for report in reports if report.state != "ready"]
     if unhealthy:
         raise ConfigError("services are not ready: " + ", ".join(unhealthy))
-    print(f"Ready to chat — {config.string('llm.id')}.")
+    print("\nNixLoom ready")
     _print_ready_endpoints(reports)
     return 0
 
@@ -328,46 +303,37 @@ def command_start(args: argparse.Namespace) -> int:
 def command_status(args: argparse.Namespace) -> int:
     _, config = _context(args.config)
     reports = _collect_reports(config)
-    ready = sum(report.state == "ready" for report in reports)
+    ready = all(report.state == "ready" for report in reports)
     stopped = all(report.state == "stopped" for report in reports)
     models = _running_models(config) if reports and reports[0].state == "ready" else []
-    loaded = [
-        model.removesuffix(" (ready)") for model in models if model.endswith(" (ready)")
-    ]
-    if stopped:
-        print("NixLoom is stopped. Start with: nixloom start")
-    elif ready != len(reports):
-        print("NixLoom needs attention:")
-    elif loaded:
-        print(f"Ready to chat — {', '.join(loaded)}.")
-    else:
-        print("Services are running. The model will load when you send a message.")
-    _print_ready_endpoints(reports)
+    model = ", ".join(models) if models else "unloaded"
+    state = "ready" if ready else "stopped" if stopped else "degraded"
+    print(f"NixLoom {state} · model: {model}\n")
+    print(f"{'SERVICE':<13} {'STATE':<11} URL")
     for report in reports:
-        if stopped:
-            break
-        if report.state == "ready":
-            continue
-        action = (
-            "nixloom start"
-            if report.state == "stopped"
-            else f"nixloom logs {report.spec.name}"
-        )
-        label = {
-            "stopped": "stopped",
-            "starting": "starting",
-            "failed": "failed",
-            "unhealthy": "not responding",
-        }[report.state]
-        print(f"  {SERVICE_LABELS[report.spec.name]}: {label} → {action}")
+        url = report.spec.url.removesuffix("/health")
+        print(f"{report.spec.name:<13} {report.state:<11} {url}")
     if getattr(args, "verbose", False):
-        print(f"\n{'SERVICE':<13} {'SYSTEMD':<18} HEALTH CHECK")
+        print(f"\n{'SERVICE':<13} {'SYSTEMD':<18} HEALTH")
         for report in reports:
             print(
                 f"{report.spec.name:<13} {report.active + '/' + report.sub:<18} {report.health}"
             )
-        print(f"Model: {', '.join(models) if models else 'none loaded'}")
-    return 0 if ready == len(reports) else 1
+    if not ready:
+        failures = [
+            report
+            for report in reports
+            if report.state != "ready" and report.state != "stopped"
+        ]
+        print(
+            "\n"
+            + (
+                f"Logs: nixloom logs {failures[0].spec.name}"
+                if failures
+                else "Start: nixloom start"
+            )
+        )
+    return 0 if ready else 1
 
 
 def command_stop(args: argparse.Namespace) -> int:
@@ -532,8 +498,8 @@ def parser() -> argparse.ArgumentParser:
         description="NixLoom — one local-AI control surface",
         epilog="""Examples:
   nixloom start                 Start the stack and load the configured model
-  nixloom status                Show services, endpoints and the loaded model
-  nixloom logs dsh -f           Follow the DSH journal
+  nixloom status                Show services, model state and URLs
+  nixloom logs dsh -f            Follow the DSH journal
 
 Run 'nixloom COMMAND --help' for details about a command.""",
     )
@@ -565,22 +531,13 @@ Run 'nixloom COMMAND --help' for details about a command.""",
     ).set_defaults(handler=command_stop)
     status = commands.add_parser(
         "status",
-        help="Show readiness and how to open chat",
+        help="Show services, model state and URLs",
         usage="%(prog)s [OPTION]...",
     )
     status.add_argument(
         "--verbose", action="store_true", help="include service diagnostics"
     )
     status.set_defaults(handler=command_status)
-    opening = commands.add_parser(
-        "open",
-        help="Open chat in your browser without copying a token",
-        usage="%(prog)s [FRONTEND]",
-    )
-    opening.add_argument(
-        "frontend", choices=("dsh", "sillytavern"), nargs="?", default="dsh"
-    )
-    opening.set_defaults(handler=command_open)
     logs = commands.add_parser(
         "logs",
         help="Read one service or the combined journal",
@@ -652,13 +609,9 @@ Run 'nixloom COMMAND --help' for details about a command.""",
     frontend = commands.add_parser(
         "dsh",
         help="Invoke the managed DSH frontend",
-        usage="%(prog)s ACTION [ARG]...",
+        usage="%(prog)s [ARG]...",
     )
-    actions = frontend.add_subparsers(
-        dest="dsh_action", required=True, metavar="ACTION"
-    )
-    invoke = actions.add_parser("run", help="Run DSH commands using NixLoom state")
-    invoke.add_argument("arguments", nargs=argparse.REMAINDER, metavar="ARG")
+    frontend.add_argument("arguments", nargs=argparse.REMAINDER, metavar="ARG")
     frontend.set_defaults(handler=command_dsh)
 
     test = commands.add_parser(
@@ -708,6 +661,9 @@ def service_parser() -> argparse.ArgumentParser:
 def main() -> int:
     try:
         argv = sys.argv[1:]
+        if not argv:
+            parser().print_help()
+            return 0
         args = (
             service_parser().parse_args(argv[1:])
             if argv[:1] == ["__service"]

@@ -16,6 +16,14 @@
         touch "$out"
     '';
 
+    tavily-contract =
+        pkgs.runCommand "nixloom-tavily-contract" { nativeBuildInputs = [ pkgs.nodejs_24 ]; }
+            ''
+                cd ${source}
+                node --test tests/test_dsh_tavily.mjs
+                touch "$out"
+            '';
+
     architecture = pkgs.runCommand "nixloom-architecture" { nativeBuildInputs = [ pkgs.ripgrep ]; } ''
         cd ${architectureSource}
         test -z "$(find . -name '*.sh' -print -quit)"

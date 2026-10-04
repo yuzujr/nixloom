@@ -19,4 +19,4 @@ package-dir = {"" = "src"}
 where = ["src"]
 
 [tool.setuptools.package-data]
-nixloom = ["*.cjs"]
+nixloom = ["*.cjs", "*.mjs"]
