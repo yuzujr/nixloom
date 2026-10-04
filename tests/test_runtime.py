@@ -19,7 +19,19 @@ class RuntimeTests(unittest.TestCase):
         self.assertIn("--mmproj", command)
         self.assertIn("--reasoning-preserve", command)
         self.assertIn("--fit", command)
+        self.assertIn("--load-mode", command)
+        load_mode = command.index("--load-mode")
+        self.assertEqual(command[load_mode + 1], "none")
         self.assertNotIn("--n-cpu-moe", command)
+
+    def test_llama_mmap_uses_current_loading_mode_option(self) -> None:
+        self.config.value["llm"]["mmap"] = True
+        try:
+            command = llama_command(self.config, self.paths)
+            load_mode = command.index("--load-mode")
+            self.assertEqual(command[load_mode + 1], "mmap")
+        finally:
+            self.config.value["llm"]["mmap"] = False
 
     def test_llama_command_explicit_n_cpu_moe(self) -> None:
         self.config.value["llm"]["n_cpu_moe"] = 32

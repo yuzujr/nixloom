@@ -100,7 +100,8 @@ def llama_command(
             str(sampling["presence_penalty"]),
             "--repeat-penalty",
             str(sampling["repeat_penalty"]),
-            "--mmap" if config.boolean("llm.mmap") else "--no-mmap",
+            "--load-mode",
+            "mmap" if config.boolean("llm.mmap") else "none",
             "--mmproj-offload"
             if config.boolean("llm.mmproj_offload")
             else "--no-mmproj-offload",
