@@ -218,6 +218,11 @@ HTTP health, and the currently loaded model in one table; it exits nonzero when
 the stack is stopped or degraded. `logs all` merges the journals of every
 installed NixLoom service.
 
+Without asset names, `models check` and `models download` select the configured
+LLM, the selected image generation/edit profiles, and video weights only when
+`video.enabled` is true. Pass asset names explicitly to fetch optional assets
+before enabling their feature.
+
 `start` reports each service and model transition once, followed by the URLs.
 `status` shows one compact service table and model state; `status --verbose`
 adds systemd and health details. Running `nixloom`, `nixloom config` or `nixloom models` without an action shows the
@@ -270,8 +275,8 @@ H3 uses `h3-text-to-video` and `h3-image-to-video` browser workflows. NixLoom
 generates these from its managed graphs and the running ComfyUI node schema;
 they appear in the browser workflow list when `video.enabled` is true. The four
 required H3 weights have pinned URLs, sizes, and SHA-256 hashes in the shipped
-asset catalog. Download them explicitly, then enable `video.enabled` in the
-YAML config:
+asset catalog. To fetch them before enabling `video.enabled`, request the assets
+explicitly:
 
 ```bash
 nixloom models download \

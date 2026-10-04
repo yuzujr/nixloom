@@ -52,7 +52,37 @@ def selected_assets(
 ) -> list[tuple[str, dict[str, Any]]]:
     catalog = config.get("assets", {})
     assert isinstance(catalog, dict)
-    names = list(requested) or sorted(catalog)
+    names = list(requested)
+    if not names:
+        paths = {
+            config.string("llm.model_file"),
+            config.string("llm.mmproj_file"),
+        }
+        if config.boolean("images.enabled", False):
+            profiles = config.get("images.profiles", {})
+            for task in ("generate", "edit"):
+                profile = profiles[config.string(f"images.{task}")]
+                paths.update(
+                    f"comfyui/models/{directory}/{profile[field]}"
+                    for field, directory in (
+                        ("model_file", "diffusion_models"),
+                        ("text_encoder", "text_encoders"),
+                        ("vae", "vae"),
+                    )
+                )
+        if config.boolean("video.enabled", False):
+            paths.update(
+                f"comfyui/models/{directory}/{config.string(f'video.{field}')}"
+                for field, directory in (
+                    ("model_file", "diffusion_models"),
+                    ("text_encoder", "text_encoders"),
+                    ("video_vae", "vae"),
+                    ("audio_vae", "vae"),
+                )
+            )
+        names = [
+            name for name, asset in catalog.items() if asset.get("path") in paths
+        ]
     unknown = [name for name in names if name not in catalog]
     if unknown:
         raise ConfigError("unknown assets: " + ", ".join(unknown))

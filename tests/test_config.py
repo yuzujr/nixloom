@@ -31,6 +31,24 @@ class ConfigTests(unittest.TestCase):
             self.assertIn(path, assets)
             self.assertEqual(len(assets[path]["sha256"]), 64)
 
+    def test_image_profile_models_are_pinned_in_the_project_asset_catalog(self) -> None:
+        paths = RuntimePaths.from_environment(str(ROOT / "config.yaml"))
+        config = Config.load(paths)
+        assets = {
+            asset["path"]: asset for asset in config.get("assets").values()
+        }
+        for profile in config.get("images.profiles").values():
+            directories = {
+                "model_file": "diffusion_models",
+                "text_encoder": "text_encoders",
+                "vae": "vae",
+            }
+            for setting, directory in directories.items():
+                path = f"comfyui/models/{directory}/{profile[setting]}"
+                with self.subTest(path=path):
+                    self.assertIn(path, assets)
+                    self.assertEqual(len(assets[path]["sha256"]), 64)
+
     def test_output_limit_must_fit_context(self) -> None:
         paths = RuntimePaths.from_environment(str(ROOT / "config.yaml"))
         config = Config.load(paths)

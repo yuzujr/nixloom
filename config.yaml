@@ -40,7 +40,7 @@ images:
     z-image:
       architecture: zimage
       task: generate
-      model_file: z_image_turbo_nvfp4.safetensors
+      model_file: z_image_turbo_int8_convrot.safetensors
       text_encoder: qwen_3_4b_fp8_mixed.safetensors
       vae: ae.safetensors
       steps: 8
@@ -53,6 +53,15 @@ images:
       vae: flux2-vae.safetensors
       steps: 4
       size: 1024x1024
+video:
+  enabled: false
+  model_file: MiniMax-H3_FL2VA-NVFP4.safetensors
+  text_encoder: qwen3vl_32b_minimax_h3_nvfp4_awq.safetensors
+  video_vae: minimax_h3_video_vae_fp16.safetensors
+  audio_vae: minimax_h3_audio_vae_fp32.safetensors
+  size: 864x480
+  frames: 124
+  steps: 20
 dsh:
   version: 0.2.0-rc.2
   workspace: ''
@@ -72,11 +81,11 @@ assets:
     url: https://huggingface.co/HauhauCS/Qwen3.6-35B-A3B-Uncensored-HauhauCS-Aggressive/resolve/f12a584fecbeb5f20001130d8ecd66c9327ae685/mmproj-Qwen3.6-35B-A3B-Uncensored-HauhauCS-Aggressive-f16.gguf
     size: 899283072
     sha256: c8e702344a81f8c226a914aa980ed6e1f604bce9374f1fed8e65c896908af414
-  z_image_turbo_nvfp4:
-    path: comfyui/models/diffusion_models/z_image_turbo_nvfp4.safetensors
-    url: https://huggingface.co/Comfy-Org/z_image_turbo/resolve/6fc90a3b1b653e935a0d175e260736de25b84df5/split_files/diffusion_models/z_image_turbo_nvfp4.safetensors
-    size: 4509509600
-    sha256: a553c889dbcb910de4c98293237573219a37007c1074a3f04576646a088bd5c8
+  z_image_turbo_int8_convrot:
+    path: comfyui/models/diffusion_models/z_image_turbo_int8_convrot.safetensors
+    url: https://huggingface.co/Comfy-Org/z_image_turbo/resolve/6fc90a3b1b653e935a0d175e260736de25b84df5/split_files/diffusion_models/z_image_turbo_int8_convrot.safetensors
+    size: 6201001296
+    sha256: be517ebd47c912a5626a588e1aeea43e6be4a43c0cdcd2b48a2a780d9f358635
   qwen_3_4b_fp8_mixed:
     path: comfyui/models/text_encoders/qwen_3_4b_fp8_mixed.safetensors
     url: https://huggingface.co/Comfy-Org/z_image_turbo/resolve/6fc90a3b1b653e935a0d175e260736de25b84df5/split_files/text_encoders/qwen_3_4b_fp8_mixed.safetensors
@@ -122,12 +131,3 @@ assets:
     url: https://huggingface.co/Comfy-Org/MiniMax-H3/resolve/e5eb578a89295337b8ff433a035929ce0279e0b6/vae/minimax_h3_audio_vae_fp32.safetensors
     size: 605254808
     sha256: 8e505d95dd1561d47abd43d4238fd40d9bb1ae9e147ed0a4cba778d76ae4db48
-video:
-  enabled: false
-  model_file: MiniMax-H3_FL2VA-NVFP4.safetensors
-  text_encoder: qwen3vl_32b_minimax_h3_nvfp4_awq.safetensors
-  video_vae: minimax_h3_video_vae_fp16.safetensors
-  audio_vae: minimax_h3_audio_vae_fp32.safetensors
-  size: 864x480
-  frames: 124
-  steps: 20
