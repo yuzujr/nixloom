@@ -15,6 +15,10 @@ let
         pkgs.coreutils
         pkgs.git
         pkgs.ripgrep
+        pkgs.patch
+    ]
+    ++ lib.optionals cfg.dsh.tailnet.enable [
+        pkgs.tailscale
     ];
     environment = [
         "NIXLOOM_STATE_DIR=${stateDir}"
@@ -23,20 +27,26 @@ let
         "NIXLOOM_CONFIG_FILE=${toString cfg.configFile}"
         "NIXLOOM_DSH_BASH=${pkgs.bashInteractive}/bin/bash"
         "NIXLOOM_DSH_LIBRARY_PATH=${libraryPath}"
+        "NIXLOOM_DSH_TAILNET=${if cfg.dsh.tailnet.enable then "1" else "0"}"
         "PATH=${lib.makeBinPath tools}:/run/current-system/sw/bin:/etc/profiles/per-user/${config.home.username}/bin"
     ];
 in
 {
-    options.services.nixloom.dsh.enable =
-        lib.mkEnableOption "the npm-managed NixLoom DSH web frontend"
-        // {
+    options.services.nixloom.dsh = {
+        enable = lib.mkEnableOption "the npm-managed NixLoom DSH web frontend" // {
             default = true;
         };
+        tailnet.enable = lib.mkEnableOption "direct HTTP access from the owner's Tailscale devices (requires a tailscale0 firewall rule)";
+    };
 
     config = lib.mkIf (cfg.enable && cfg.dsh.enable) {
         home = {
             packages = tools;
-            sessionVariables.NIXLOOM_DSH_LIBRARY_PATH = libraryPath;
+            sessionVariables = {
+                NIXLOOM_DSH_LIBRARY_PATH = libraryPath;
+                NIXLOOM_DSH_BASH = "${pkgs.bashInteractive}/bin/bash";
+                NIXLOOM_DSH_TAILNET = if cfg.dsh.tailnet.enable then "1" else "0";
+            };
             activation.nixloomDshInstall = lib.hm.dag.entryAfter [ "nixloomDirectories" ] ''
                 run env ${
                     lib.concatMapStringsSep " " lib.escapeShellArg environment

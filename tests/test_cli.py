@@ -50,6 +50,18 @@ class CliTests(unittest.TestCase):
         self.assertIn("Examples:\n", rendered)
         self.assertNotIn("\n    service", rendered)
 
+    def test_command_groups_without_action_show_help(self) -> None:
+        for command in ([], ["config"], ["models"]):
+            with (
+                self.subTest(command=command),
+                redirect_stdout(io.StringIO()) as output,
+                patch("nixloom.cli._context") as context,
+            ):
+                args = parser().parse_args(command)
+                args.handler(args)
+                self.assertIn("Usage: nixloom", output.getvalue())
+                context.assert_not_called()
+
     def test_hidden_service_entry_point_remains_parseable(self) -> None:
         args = service_parser().parse_args(["llama", "--port", "8080"])
         self.assertEqual(args.service_name, "llama")

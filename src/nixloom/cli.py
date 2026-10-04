@@ -54,9 +54,7 @@ class GNUArgumentParser(argparse.ArgumentParser):
         super().__init__(*args, **kwargs)
 
     def error(self, message: str) -> None:
-        if message == "the following arguments are required: COMMAND":
-            message = "missing command"
-        elif message.startswith("argument COMMAND: invalid choice: "):
+        if message.startswith("argument COMMAND: invalid choice: "):
             choice = message.removeprefix("argument COMMAND: invalid choice: ").split(
                 " ", 1
             )[0]
@@ -250,11 +248,15 @@ def _warm_model(config: Config) -> None:
     print(f" → loaded ({time.monotonic() - started:.1f}s)", flush=True)
 
 
-def _print_ready_endpoints(reports: list[ServiceReport]) -> None:
+def _print_ready_endpoints(reports: list[ServiceReport], config: Config) -> None:
     for report in reports:
         if report.state == "ready":
             endpoint = report.spec.url.removesuffix("/health")
             print(f"  {report.spec.name:<12} {endpoint}")
+            if report.spec.name == "dsh":
+                url = dsh.tailnet_url(config)
+                if url:
+                    print(f"  {'tailnet':<12} {url}")
 
 
 def command_start(args: argparse.Namespace) -> int:
@@ -276,7 +278,7 @@ def command_start(args: argparse.Namespace) -> int:
             and _configured_model_ready(config)
         ):
             print(f"NixLoom ready · {config.string('llm.id')}")
-            _print_ready_endpoints(current)
+            _print_ready_endpoints(current, config)
             return 0
     action = "Restarting" if args.restart else "Starting"
     if any(spec.name == "dsh" for spec in specs):
@@ -296,7 +298,7 @@ def command_start(args: argparse.Namespace) -> int:
     if unhealthy:
         raise ConfigError("services are not ready: " + ", ".join(unhealthy))
     print("\nNixLoom ready")
-    _print_ready_endpoints(reports)
+    _print_ready_endpoints(reports, config)
     return 0
 
 
@@ -313,6 +315,9 @@ def command_status(args: argparse.Namespace) -> int:
     for report in reports:
         url = report.spec.url.removesuffix("/health")
         print(f"{report.spec.name:<13} {report.state:<11} {url}")
+    url = dsh.tailnet_url(config)
+    if url:
+        print(f"\nTailnet: {url}")
     if getattr(args, "verbose", False):
         print(f"\n{'SERVICE':<13} {'SYSTEMD':<18} HEALTH")
         for report in reports:
@@ -365,6 +370,9 @@ def command_logs(args: argparse.Namespace) -> None:
 
 
 def command_config(args: argparse.Namespace) -> None:
+    if args.config_action is None:
+        args.help_parser.print_help()
+        return
     paths = RuntimePaths.from_environment(args.config)
     if args.config_action == "init":
         target = paths.config_dir / "config.yaml"
@@ -507,8 +515,9 @@ Run 'nixloom COMMAND --help' for details about a command.""",
         "-c", "--config", metavar="FILE", help="use FILE instead of the default config"
     )
     root.add_argument("--version", action="version", version=f"%(prog)s {__version__}")
+    root.set_defaults(handler=lambda _: root.print_help())
     commands = root.add_subparsers(
-        dest="command", required=True, title="Commands", metavar="COMMAND"
+        dest="command", required=False, title="Commands", metavar="COMMAND"
     )
 
     for name, help_text in (
@@ -572,6 +581,7 @@ Run 'nixloom COMMAND --help' for details about a command.""",
     config.add_argument(
         "config_action",
         choices=("check", "init"),
+        nargs="?",
         metavar="ACTION",
         help="check or init",
     )
@@ -579,7 +589,7 @@ Run 'nixloom COMMAND --help' for details about a command.""",
         "--verbose", action="store_true", help="show generated launch commands"
     )
     config.add_argument("--dry-run", action="store_true", help="show changes only")
-    config.set_defaults(handler=command_config)
+    config.set_defaults(handler=command_config, help_parser=config)
 
     models = commands.add_parser(
         "models",
@@ -590,12 +600,16 @@ Run 'nixloom COMMAND --help' for details about a command.""",
     models.add_argument(
         "models_action",
         choices=("check", "download"),
+        nargs="?",
         metavar="ACTION",
         help="check or download",
     )
     models.add_argument("assets", nargs="*", metavar="ASSET", help="asset name")
 
     def models_handler(args: argparse.Namespace) -> None:
+        if args.models_action is None:
+            models.print_help()
+            return
         paths, loaded = _context(args.config)
         action = (
             operations.check_models
@@ -661,9 +675,6 @@ def service_parser() -> argparse.ArgumentParser:
 def main() -> int:
     try:
         argv = sys.argv[1:]
-        if not argv:
-            parser().print_help()
-            return 0
         args = (
             service_parser().parse_args(argv[1:])
             if argv[:1] == ["__service"]

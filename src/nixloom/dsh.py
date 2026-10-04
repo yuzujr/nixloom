@@ -3,9 +3,9 @@
 from __future__ import annotations
 
 import fcntl
+import hashlib
 import json
 import os
-import re
 import shutil
 import subprocess
 import sys
@@ -15,6 +15,7 @@ from typing import Any
 
 import yaml
 
+from . import dsh_compat
 from .config import Config, ConfigError, RuntimePaths
 
 DEFAULT_VERSION = "0.2.0-rc.2"
@@ -42,6 +43,10 @@ def environment(config: Config, paths: RuntimePaths) -> dict[str, str]:
         NARB_NATIVE_CACHE_DIR=str(paths.cache / "dsh/native"),
         DSH_IMAGE_GEN_OPENAI_COMPAT_KEY="nixloom-local",
         TAVILY_API_KEY=config.string("credentials.tavily_api_key", ""),
+        NIXLOOM_DSH_WORKSPACE=str(workspace(config, paths)),
+        NIXLOOM_DSH_BASH=os.environ.get("NIXLOOM_DSH_BASH")
+        or shutil.which("bash")
+        or "/run/current-system/sw/bin/bash",
     )
     library_path = os.environ.get("NIXLOOM_DSH_LIBRARY_PATH", "")
     if library_path:
@@ -102,6 +107,7 @@ def install(config: Config, paths: RuntimePaths, *, dry_run: bool = False) -> No
                     check=True,
                     env=environment(config, paths),
                 )
+                dsh_compat.install(app)
                 os.replace(app, target)
         elif (
             config.boolean("images.enabled")
@@ -122,6 +128,7 @@ def install(config: Config, paths: RuntimePaths, *, dry_run: bool = False) -> No
                 env=environment(config, paths),
             )
         require_installed(config, paths)
+        dsh_compat.install(target)
         prepare(config, paths)
     print(f"DSH installed: {target}")
 
@@ -151,6 +158,13 @@ def managed_settings(config: Config) -> list[dict[str, Any]]:
         ],
     }
     return [
+        {
+            "id": "webserver",
+            "config": {
+                "host": "0.0.0.0" if tailnet_enabled() else "127.0.0.1",
+                "port": config.integer("ports.dsh", 3080, minimum=1),
+            },
+        },
         {"id": "web", "config": {"searchProvider": "tavily", "fetchProvider": "http"}},
         {"id": "llm-pi-ai", "config": {"providers": {"nixloom": provider}}},
         {
@@ -162,69 +176,6 @@ def managed_settings(config: Config) -> list[dict[str, Any]]:
             },
         },
     ]
-
-
-def _prepare_packages(config: Config, paths: RuntimePaths) -> None:
-    modules = app_directory(config, paths) / "node_modules"
-    terminal = modules / "@deepseek-ai/dsh-terminal-bash/lib/index.js"
-    source = terminal.read_text(encoding="utf-8")
-    bash = os.environ.get(
-        "NIXLOOM_DSH_BASH", shutil.which("bash") or "/run/current-system/sw/bin/bash"
-    )
-    replacement = f"const DEFAULT_BASH_SHELL = {json.dumps(bash)};"
-    source, count = re.subn(
-        r'const DEFAULT_BASH_SHELL = "(?:[^"\\]|\\.)*";',
-        lambda _: replacement,
-        source,
-    )
-    if count != 1:
-        raise ConfigError("DSH Bash default changed; review the pinned npm version")
-    terminal.write_text(source, encoding="utf-8")
-    controller = modules / "@deepseek-ai/dsh-api-workspace-controller/lib/index.js"
-    source = controller.read_text(encoding="utf-8")
-    original = "async function defaultWorkspaceDirectory(documentsDirectory, signal, internals = {}) {"
-    replacement = f"return {json.dumps(str(workspace(config, paths)))};"
-    marker = "/* NixLoom default workspace */"
-    if original in source and marker not in source:
-        controller.write_text(
-            source.replace(original, original + "\n" + marker + replacement),
-            encoding="utf-8",
-        )
-    elif marker in source:
-        controller.write_text(
-            re.sub(
-                re.escape(marker) + r"return [^\n]+;",
-                lambda _: marker + replacement,
-                source,
-            ),
-            encoding="utf-8",
-        )
-    else:
-        raise ConfigError(
-            "DSH workspace default changed; review the pinned npm version"
-        )
-
-    connection = modules / "@deepseek-ai/dsh-client-connection/lib/index.js"
-    source = connection.read_text(encoding="utf-8")
-    marker = "/* NixLoom loopback access */"
-    if marker not in source:
-        original = "\tisAuthenticated(request) {\n\t\tconst authority = requestAuthority(request.headers);"
-        replacement = (
-            original
-            + "\n\t\t"
-            + marker
-            + '\n\t\tif (process.env.NIXLOOM_DSH_LOCAL_ACCESS === "1" && authority !== void 0 && isLoopbackHostname(new URL("http://" + authority).hostname)) return true;'
-        )
-        display = "authenticatedUrl(baseUrl) {\n\t\tconst url = new URL(baseUrl);"
-        display_replacement = 'authenticatedUrl(baseUrl) {\n\t\tif (process.env.NIXLOOM_DSH_LOCAL_ACCESS === "1") return baseUrl;\n\t\tconst url = new URL(baseUrl);'
-        if source.count(original) != 1 or source.count(display) != 1:
-            raise ConfigError(
-                "DSH connection API changed; review the pinned npm version"
-            )
-        connection.write_text(
-            source.replace(original, replacement).replace(display, display_replacement),
-            encoding="utf-8",
-        )
 
 
 def _image_settings(config: Config) -> dict[str, Any]:
@@ -277,7 +228,6 @@ def _write_yaml(target: Path, value: Any) -> None:
 
 def prepare(config: Config, paths: RuntimePaths) -> None:
     require_installed(config, paths)
-    _prepare_packages(config, paths)
     work = workspace(config, paths)
     work.mkdir(parents=True, exist_ok=True, mode=0o700)
     subprocess.run(
@@ -322,14 +272,19 @@ def prepare(config: Config, paths: RuntimePaths) -> None:
     patch = profile / "cordis.patch.yml"
     sync_settings(config, patch)
     rows = yaml.safe_load(patch.read_text(encoding="utf-8"))
-    rows = [row for row in rows if row.get("id") != "nixloom-tavily"]
+    managed_ids = {"nixloom-tavily", "nixloom-workspace"}
+    rows = [row for row in rows if row.get("id") not in managed_ids]
     rows.append(
         {
             "insert": [
                 {
                     "id": "nixloom-tavily",
                     "name": str(Path(__file__).with_name("dsh_tavily.mjs")),
-                }
+                },
+                {
+                    "id": "nixloom-workspace",
+                    "name": str(Path(__file__).with_name("dsh_workspace.mjs")),
+                },
             ]
         }
     )
@@ -337,7 +292,7 @@ def prepare(config: Config, paths: RuntimePaths) -> None:
     for row in rows[:-1]:
         if isinstance(row.get("insert"), list):
             row["insert"] = [
-                item for item in row["insert"] if item.get("id") != "nixloom-tavily"
+                item for item in row["insert"] if item.get("id") not in managed_ids
             ]
     rows = [row for row in rows if row != {"insert": []}]
     _write_yaml(patch, rows)
@@ -352,6 +307,68 @@ def prepare(config: Config, paths: RuntimePaths) -> None:
     else:
         rows = yaml.safe_load(patch.read_text(encoding="utf-8"))
         _write_yaml(patch, [row for row in rows if row.get("id") != "image-gen"])
+    _write_json(
+        profile / ".nixloom-prepared.json",
+        {"fingerprint": _profile_fingerprint(config, paths)},
+    )
+
+
+def _profile_fingerprint(config: Config, paths: RuntimePaths) -> str:
+    managed = {
+        "version": config.string("dsh.version", DEFAULT_VERSION),
+        "workspace": str(workspace(config, paths)),
+        "settings": managed_settings(config),
+        "images": _image_settings(config) if config.boolean("images.enabled") else None,
+        "plugins": str(Path(__file__).parent),
+    }
+    return hashlib.sha256(json.dumps(managed, sort_keys=True).encode()).hexdigest()
+
+
+def require_prepared(config: Config, paths: RuntimePaths) -> None:
+    require_installed(config, paths)
+    dsh_compat.verify(app_directory(config, paths))
+    stamp = paths.state / ".dsh/profiles/web/.nixloom-prepared.json"
+    if not stamp.is_file() or json.loads(stamp.read_text()).get(
+        "fingerprint"
+    ) != _profile_fingerprint(config, paths):
+        raise ConfigError("DSH profile is stale; rerun Home Manager activation")
+
+
+def tailnet_enabled() -> bool:
+    return os.environ.get("NIXLOOM_DSH_TAILNET") == "1"
+
+
+def tailnet_identity() -> dict[str, Any]:
+    result = subprocess.run(
+        ["tailscale", "status", "--json"], check=True, text=True, capture_output=True
+    )
+    status = json.loads(result.stdout)
+    node = status.get("Self", {})
+    if status.get("BackendState") != "Running" or not node.get("TailscaleIPs"):
+        raise ConfigError("Tailscale is not connected; connect it before starting DSH")
+    if not node.get("UserID"):
+        raise ConfigError(
+            "Tailscale node has no owner identity; token-free access is unavailable"
+        )
+    peers = set(node["TailscaleIPs"])
+    for peer in status.get("Peer", {}).values():
+        if peer.get("UserID") == node.get("UserID"):
+            peers.update(peer.get("TailscaleIPs", []))
+    return {
+        "addresses": node["TailscaleIPs"],
+        "hostname": node["DNSName"].rstrip("."),
+        "peers": sorted(peers),
+    }
+
+
+def tailnet_url(config: Config) -> str | None:
+    if not tailnet_enabled():
+        return None
+    try:
+        identity = tailnet_identity()
+    except (ConfigError, OSError, subprocess.CalledProcessError, json.JSONDecodeError):
+        return None
+    return f"http://{identity['hostname']}:{config.integer('ports.dsh', 3080)}/"
 
 
 def _write_json(target: Path, value: Any) -> None:
@@ -373,8 +390,6 @@ def run(config: Config, paths: RuntimePaths, *, dry_run: bool = False) -> None:
         paths,
         "web",
         "--no-open",
-        "--host",
-        "127.0.0.1",
         "--port",
         str(config.integer("ports.dsh", 3080, minimum=1)),
     )
@@ -383,7 +398,7 @@ def run(config: Config, paths: RuntimePaths, *, dry_run: bool = False) -> None:
         print(f"workspace={workspace(config, paths)}")
         print(" ".join(args))
         return
-    prepare(config, paths)
+    require_prepared(config, paths)
     print(
         f"Starting DSH on http://127.0.0.1:{config.integer('ports.dsh', 3080)}",
         file=sys.stderr,
@@ -391,6 +406,20 @@ def run(config: Config, paths: RuntimePaths, *, dry_run: bool = False) -> None:
     os.chdir(workspace(config, paths))
     values = environment(config, paths)
     values["NIXLOOM_DSH_LOCAL_ACCESS"] = "1"
+    if tailnet_enabled():
+        identity = tailnet_identity()
+        port = config.integer("ports.dsh", 3080)
+        hosts = [
+            f"{identity['hostname']}:{port}",
+            *[
+                f"{address}:{port}"
+                for address in identity["addresses"]
+                if ":" not in address
+            ],
+        ]
+        values["NIXLOOM_DSH_TAILNET_HOSTS"] = json.dumps(hosts)
+        values["NIXLOOM_DSH_TAILNET_PEERS"] = json.dumps(identity["peers"])
+        args.extend(["--trusted-host", *hosts])
     os.execvpe(args[0], args, values)
 
 

@@ -139,24 +139,54 @@ class DshTests(unittest.TestCase):
         manifest = json.loads((profile / "package.json").read_text())
         self.assertNotIn("dsh-image-gen", manifest["dependencies"])
         self.assertFalse((profile / "node_modules/dsh-image-gen").is_symlink())
-        insertions = [item for row in yaml.safe_load((profile / "cordis.patch.yml").read_text()) for item in row.get("insert", [])]
-        self.assertEqual([item["id"] for item in insertions], ["nixloom-tavily"])
+        insertions = [
+            item
+            for row in yaml.safe_load((profile / "cordis.patch.yml").read_text())
+            for item in row.get("insert", [])
+        ]
+        self.assertEqual(
+            [item["id"] for item in insertions], ["nixloom-tavily", "nixloom-workspace"]
+        )
         rows = yaml.safe_load((profile / "cordis.patch.yml").read_text())
         self.assertNotIn("image-gen", [row.get("id") for row in rows])
 
-    def test_web_default_workspace_patch_updates_without_accumulating(self) -> None:
+    def test_startup_does_not_prepare_or_modify_packages(self) -> None:
         self.fake_install()
-        with patch("nixloom.dsh.subprocess.run"):
-            dsh.prepare(self.config, self.paths)
-            self.config.value["dsh"]["workspace"] = str(self.paths.data / "custom")
-            dsh.prepare(self.config, self.paths)
-            dsh.prepare(self.config, self.paths)
-        controller = (
-            dsh.app_directory(self.config, self.paths)
-            / "node_modules/@deepseek-ai/dsh-api-workspace-controller/lib/index.js"
-        ).read_text()
-        self.assertEqual(controller.count("/* NixLoom default workspace */"), 1)
-        self.assertIn(json.dumps(str(self.paths.data / "custom")), controller)
+        with (
+            patch("nixloom.dsh.require_prepared") as verify,
+            patch("nixloom.dsh.prepare") as prepare,
+            patch("nixloom.dsh.os.chdir"),
+            patch("nixloom.dsh.os.execvpe") as execute,
+            patch.dict("os.environ", {"NIXLOOM_DSH_TAILNET": "0"}),
+        ):
+            dsh.run(self.config, self.paths)
+        verify.assert_called_once_with(self.config, self.paths)
+        prepare.assert_not_called()
+        self.assertEqual(
+            execute.call_args.args[2]["NIXLOOM_DSH_WORKSPACE"],
+            str(self.paths.data / "dsh/workspace"),
+        )
+
+    def test_tailnet_grants_only_owner_devices(self) -> None:
+        status = {
+            "BackendState": "Running",
+            "Self": {
+                "UserID": 1,
+                "DNSName": "laptop.example.ts.net.",
+                "TailscaleIPs": ["100.64.0.2"],
+            },
+            "Peer": {
+                "phone": {"UserID": 1, "TailscaleIPs": ["100.64.0.3"]},
+                "shared": {"UserID": 2, "TailscaleIPs": ["100.64.0.4"]},
+            },
+        }
+        with patch(
+            "nixloom.dsh.subprocess.run",
+            return_value=subprocess.CompletedProcess([], 0, json.dumps(status)),
+        ):
+            identity = dsh.tailnet_identity()
+        self.assertEqual(identity["peers"], ["100.64.0.2", "100.64.0.3"])
+        self.assertEqual(identity["hostname"], "laptop.example.ts.net")
 
     def test_missing_installation_is_actionable_and_does_not_download(self) -> None:
         with (

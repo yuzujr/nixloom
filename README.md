@@ -94,7 +94,7 @@ nixloom logs dsh
 ```
 
 DSH is served at `http://127.0.0.1:3080/` without a login token. The NixLoom
-launcher enables local access only for its loopback-bound service; the upstream
+launcher enables local access for its managed service; the upstream
 Host/Origin checks still protect API requests. Direct DSH invocations retain
 upstream authentication. SillyTavern is also loopback-only and needs no login.
 
@@ -120,13 +120,35 @@ are enabled it installs `dsh-image-gen` 0.8.5 and connects its OpenAI-compatible
 provider to the existing SD endpoint; no second image runtime is installed.
 Image editing still depends on the capabilities of the selected SD backend.
 
-The npm launcher exposes Node internals through Node's own loader because the
-upstream native getter does not recognize Nix-built Node. Installation also
-corrects DSH's `/bin/bash` default for NixOS and redirects Web's first-use
-workspace into the configured NixLoom directory. A guarded client-connection patch
-allows token-free access for the loopback-bound managed server while retaining
-upstream Host and Origin validation. These workarounds belong to NixLoom
-and can be removed when upstream supports this environment directly.
+The launcher exposes Node internals through Node's own loader because the upstream
+native getter does not recognize Nix-built Node. Bash uses the native `shellPath`
+option; the workspace plugin uses `workspaceRegistry.initializeDefault`, preserving
+existing registrations. Neither needs a source patch.
+
+The remaining authentication change is an explicit unified diff under
+`src/nixloom/dsh-patches`, with SHA-256 checks before and after application. Home
+Manager applies it during installation and removes the previous inline patches.
+Startup checks the installed files and profile fingerprint, then executes DSH;
+it never patches packages, prepares profiles or installs dependencies. Changes to
+managed frontend settings require Home Manager activation again.
+
+### Direct Tailnet HTTP access
+
+Enable `services.nixloom.dsh.tailnet.enable` and allow the configured DSH port
+(default 3080) only on `networking.firewall.interfaces.tailscale0.allowedTCPPorts`.
+DSH then uses the upstream Web server's explicit `0.0.0.0` configuration, so the
+interface-specific firewall rule is required. LAN interfaces must not allow that
+port. Tailscale Serve and Funnel are not involved.
+
+Open `http://<machine>.<tailnet>.ts.net:3080/` or the machine's Tailscale IPv4
+address. The managed access check compares the actual TCP peer address with
+Tailscale's device inventory for the server owner's account; it does not trust
+forwarded headers or a loopback Host supplied by a remote caller. The upstream
+Host/Origin checks still apply to API and WebSocket requests. Device grants are
+refreshed at service start, so restart DSH after adding an owner device.
+
+The mobile browser works over this HTTP connection. Installing a PWA and enabling
+Web Push normally requires HTTPS; a native Android client is a separate option.
 
 ## Configuration
 
@@ -171,7 +193,8 @@ installed NixLoom service.
 
 `start` reports each service and model transition once, followed by the URLs.
 `status` shows one compact service table and model state; `status --verbose`
-adds systemd and health details. Running `nixloom` without arguments shows help.
+adds systemd and health details. Running `nixloom`, `nixloom config` or `nixloom models` without an action shows the
+corresponding help.
 
 Web search uses the packaged Tavily provider with `credentials.tavily_api_key`.
 The key is passed only in the server process environment, never written into

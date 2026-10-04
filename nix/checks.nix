@@ -20,7 +20,7 @@
         pkgs.runCommand "nixloom-tavily-contract" { nativeBuildInputs = [ pkgs.nodejs_24 ]; }
             ''
                 cd ${source}
-                node --test tests/test_dsh_tavily.mjs
+                node --test tests/*.mjs
                 touch "$out"
             '';
 

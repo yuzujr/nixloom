@@ -12,7 +12,10 @@ let
         build-system = [ pkgs.python3Packages.setuptools ];
         dependencies = [ pkgs.python3Packages.pyyaml ];
         nativeBuildInputs = [ pkgs.makeWrapper ];
-        nativeCheckInputs = [ pkgs.python3Packages.pyyaml ];
+        nativeCheckInputs = [
+            pkgs.python3Packages.pyyaml
+            pkgs.patch
+        ];
         checkPhase = ''
             runHook preCheck
             PYTHONPATH="$PWD/src''${PYTHONPATH:+:$PYTHONPATH}" python -m unittest discover -s tests -v
