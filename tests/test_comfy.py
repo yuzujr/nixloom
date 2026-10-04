@@ -2,7 +2,7 @@ import copy
 import unittest
 from pathlib import Path
 
-from nixloom.comfy import command, workflows
+from nixloom.comfy import command, video_workflows, workflows
 from nixloom.config import Config, ConfigError, RuntimePaths
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -19,6 +19,14 @@ class ComfyTests(unittest.TestCase):
         self.assertEqual(graph["6"]["class_type"], "EmptyFlux2LatentImage")
         self.assertEqual(graph["11"]["inputs"]["image"], "{{image}}")
         self.assertEqual(graph["19"]["inputs"]["width"], ["16", 0])
+
+    def test_h3_has_separate_text_and_first_frame_workflows(self):
+        self.config.value["video"]["enabled"] = True
+        graphs = video_workflows(self.config)
+        self.assertEqual(set(graphs), {"h3-text-to-video", "h3-image-to-video"})
+        self.assertIn("{{prompt}}", graphs["h3-text-to-video"]["5"]["inputs"]["prompt"])
+        self.assertEqual(graphs["h3-image-to-video"]["5"]["inputs"]["first_frame"], ["15", 0])
+        self.assertEqual(graphs["h3-image-to-video"]["15"]["inputs"]["image"], "{{image}}")
 
     def test_comfy_backend_is_private_and_writable_paths_are_outside_store(self):
         launch = command(self.config, self.paths)

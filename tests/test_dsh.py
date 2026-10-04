@@ -104,6 +104,7 @@ class DshTests(unittest.TestCase):
 
     def test_prepare_connects_image_plugin_and_preserves_user_bundles(self) -> None:
         self.fake_install()
+        self.config.value["video"]["enabled"] = True
         with patch("nixloom.dsh.subprocess.run") as run:
             dsh.prepare(self.config, self.paths)
         profile = self.paths.state / ".dsh/profiles/web"
@@ -125,12 +126,23 @@ class DshTests(unittest.TestCase):
         self.assertEqual(
             run.call_args.kwargs["env"]["DSH_HOME"], str(self.paths.state / ".dsh")
         )
+        video = json.loads(
+            run.call_args.kwargs["env"]["NIXLOOM_DSH_VIDEO_WORKFLOWS"]
+        )
+        self.assertEqual(
+            set(video["workflows"]), {"h3-text-to-video", "h3-image-to-video"}
+        )
+        self.assertEqual(
+            run.call_args.kwargs["env"]["NIXLOOM_DSH_COMFYUI_URL"],
+            "http://127.0.0.1:8188",
+        )
 
     def test_disabling_images_removes_only_managed_bundle_and_patch(self) -> None:
         self.fake_install()
         with patch("nixloom.dsh.subprocess.run"):
             dsh.prepare(self.config, self.paths)
             self.config.value["images"]["enabled"] = False
+            self.config.value["video"]["enabled"] = False
             dsh.prepare(self.config, self.paths)
         profile = self.paths.state / ".dsh/profiles/web"
         bundles = json.loads((profile / "package.json").read_text())["dsh"]["profile"][
@@ -151,6 +163,12 @@ class DshTests(unittest.TestCase):
         )
         rows = yaml.safe_load((profile / "cordis.patch.yml").read_text())
         self.assertNotIn("image-gen", [row.get("id") for row in rows])
+
+    def test_video_tool_environment_is_absent_when_video_is_disabled(self) -> None:
+        self.config.value["video"]["enabled"] = False
+        env = dsh.environment(self.config, self.paths)
+        self.assertNotIn("NIXLOOM_DSH_VIDEO_WORKFLOWS", env)
+        self.assertNotIn("NIXLOOM_DSH_COMFYUI_URL", env)
 
     def test_startup_does_not_prepare_or_modify_packages(self) -> None:
         self.fake_install()

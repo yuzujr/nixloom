@@ -56,12 +56,33 @@ def environment(config: Config, paths: RuntimePaths) -> dict[str, str]:
         )
     else:
         result.pop("NIXLOOM_DSH_IMAGE_WORKFLOWS", None)
+    video = _video_settings(config)
+    if video:
+        result["NIXLOOM_DSH_VIDEO_WORKFLOWS"] = json.dumps(video)
+        result["NIXLOOM_DSH_COMFYUI_URL"] = (
+            f"http://127.0.0.1:{config.integer('ports.comfyui', 8188, minimum=1)}"
+        )
+    else:
+        result.pop("NIXLOOM_DSH_VIDEO_WORKFLOWS", None)
+        result.pop("NIXLOOM_DSH_COMFYUI_URL", None)
     library_path = os.environ.get("NIXLOOM_DSH_LIBRARY_PATH", "")
     if library_path:
         result["LD_LIBRARY_PATH"] = (
             library_path + ":" + result.get("LD_LIBRARY_PATH", "")
         )
     return result
+
+
+def _video_settings(config: Config) -> dict[str, Any] | None:
+    if not config.boolean("video.enabled", False):
+        return None
+    from .comfy import video_workflows
+
+    return {
+        "workflows": video_workflows(config),
+        "frames": config.integer("video.frames", minimum=5),
+        "size": config.string("video.size"),
+    }
 
 
 def command(config: Config, paths: RuntimePaths, *arguments: str) -> list[str]:
@@ -339,6 +360,7 @@ def _profile_fingerprint(config: Config, paths: RuntimePaths) -> str:
         "workspace": str(workspace(config, paths)),
         "settings": managed_settings(config),
         "images": _image_settings(config) if config.boolean("images.enabled") else None,
+        "video": _video_settings(config),
         "plugins": str(Path(__file__).parent),
     }
     return hashlib.sha256(json.dumps(managed, sort_keys=True).encode()).hexdigest()

@@ -6,7 +6,7 @@ workflows. A single gateway schedules GPU access for every frontend.
 
 ```text
 DSH / SillyTavern ── chat ── NixLoom gateway :8080 ── llama-swap :8187 ── llama.cpp
-ComfyUI browser / DSH image tools / SillyTavern
+ComfyUI browser / DSH image and H3 video tools / SillyTavern
                  └─ workflows ── gateway :8188 ── ComfyUI :8189
 ```
 
@@ -16,8 +16,8 @@ ComfyUI browser / DSH image tools / SillyTavern
 - Z-Image-Turbo generates photographs; FLUX.2 Klein edits a reference image.
   Both use native NVFP4 kernels on supported Blackwell cards, with quantized
   Qwen text encoders and tiled VAE decoding.
-- Optional MiniMax H3 provides text-to-video and first-frame-to-video workflows,
-  including audio, in the ComfyUI browser. DSH's image plugin remains for images.
+- When enabled, MiniMax H3 provides text-to-video and first-frame-to-video
+  workflows, including audio, in both DSH and the ComfyUI browser.
 - Models, inputs, outputs and extensions live under the data directory;
   browser settings/workflows and the database live under state; temporary files
   live under cache. No mutable files are installed into the Nix store.
@@ -140,11 +140,13 @@ with the same environment as the service. Extra plugins remain user-managed.
 NixLoom synchronizes its local model route, context/output limits and Qwen
 thinking controls, preserving other providers and plugin settings. When images
 are enabled it installs `dsh-image-gen` 0.8.5 and configures its native ComfyUI
-provider with named `z-image` and `klein-edit` workflows. Select the edit workflow
-and supply an image for reference editing; the same graphs are saved as browser
-workflows in ComfyUI. The plugin currently supports one reference image. Browser
-workflows can be expanded to accept multiple references.
-Image editing still depends on the capabilities of the selected SD backend.
+provider with named `z-image` and `klein-edit` workflows. When video is enabled,
+the managed workspace plugin also registers `generate_video` for MiniMax H3
+text-to-video and first-frame-to-video. It submits through the NixLoom ComfyUI
+gateway, waits for the shared GPU scheduler to finish, and returns the video as a
+downloadable DSH file attachment. The same H3 graphs remain available in the
+ComfyUI browser. Image editing still depends on the capabilities of the selected
+SD backend.
 
 The launcher exposes Node internals through Node's own loader because the upstream
 native getter does not recognize Nix-built Node. Bash uses the native `shellPath`
@@ -271,12 +273,12 @@ cache so prior graphs do not accumulate VRAM. The default is 0.5 GiB beyond curr
 actual desktop use before reducing it. The 8 GB deployment uses Klein 4B NVFP4;
 a larger model can be configured by changing its weights and matching encoder.
 
-H3 uses `h3-text-to-video` and `h3-image-to-video` browser workflows. NixLoom
-generates these from its managed graphs and the running ComfyUI node schema;
-they appear in the browser workflow list when `video.enabled` is true. The four
+H3 uses `h3-text-to-video` and `h3-image-to-video` workflows. NixLoom generates
+these from its managed graphs and the running ComfyUI node schema; they appear in
+DSH and the browser workflow list when `video.enabled` is true. The four
 required H3 weights have pinned URLs, sizes, and SHA-256 hashes in the shipped
-asset catalog. To fetch them before enabling `video.enabled`, request the assets
-explicitly:
+asset catalog. `nixloom models download` includes them when `video.enabled` is
+true. To fetch them separately while video is disabled, request them explicitly:
 
 ```bash
 nixloom models download \

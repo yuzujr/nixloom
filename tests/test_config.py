@@ -60,6 +60,7 @@ class ConfigTests(unittest.TestCase):
         paths = RuntimePaths.from_environment(str(ROOT / "config.yaml"))
         config = Config.load(paths)
         config.value["images"] = {"enabled": False}
+        config.value["video"]["enabled"] = False
         with patch.dict("os.environ", {"NIXLOOM_IMAGE_RUNTIME": "disabled"}):
             config.validate()
 
