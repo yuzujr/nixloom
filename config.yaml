@@ -1,6 +1,6 @@
 ports:
   llama: 8080
-  openclaw: 18789
+  dsh: 3080
   sillytavern: 8000
 llm:
   id: qwen
@@ -57,10 +57,10 @@ images:
       size: 1216x1216
       prompt_prefix: addmicrodetails, masterpiece, best quality, amazing quality, very aesthetic, absurdres,
       negative_prompt: bad quality,worst quality,worst detail,sketch,censor,extra limbs,deformed fingers,bad anatomy,mutated body,lowres,low quality,low score,bad score,blurry,text,ugly,hooded eyes,watermark,pale,bad hands,bad proportions,poorly drawn face,poorly drawn hand,missing finger,pixelated,distorted,jpeg artifacts,signature,(deformed:1.5),(bad hand:1.3),overexposed,underexposed,censored,mutated,extra finger,cloned face,bad eyes,
-openclaw:
-  # Empty uses OpenClaw's normal per-user workspace.
+dsh:
+  version: 0.2.0-rc.2
+  # Empty uses the workspace inside NixLoom's data directory.
   workspace: ""
-  yuanbao: false
 sillytavern:
   bind: 0.0.0.0
   auth_user: nixloom
@@ -68,10 +68,7 @@ sillytavern:
   preset: Qwen 3.6 35B RP
 
 credentials:
-  tavily_api_key: ""
   civitai_api_token: ""
-  yuanbao_app_key: ""
-  yuanbao_app_secret: ""
 
 # Optional download catalog used by `nixloom models download`. Paths are
 # relative to the writable data directory; configured model paths do not need

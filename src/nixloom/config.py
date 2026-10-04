@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+import re
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -148,7 +149,7 @@ class Config:
         configured_ports = self.get("ports", required=True)
         if not isinstance(configured_ports, dict):
             raise ConfigError("ports must be a mapping")
-        for name in ("llama", "openclaw", "sillytavern"):
+        for name in ("llama", "dsh", "sillytavern"):
             if name not in configured_ports and name != "llama":
                 continue
             port = self.integer(f"ports.{name}", minimum=1)
@@ -264,9 +265,13 @@ class Config:
             self.string("sillytavern.auth_user")
             self.string("sillytavern.auth_password", "")
             self.string("sillytavern.preset")
-        if "openclaw" in self.value:
-            self.string("openclaw.workspace", "")
-            self.boolean("openclaw.yuanbao")
+        if "dsh" in self.value:
+            version = self.string("dsh.version", "0.2.0-rc.2")
+            if not re.fullmatch(r"\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?", version):
+                raise ConfigError("dsh.version must be an exact npm version")
+            workspace = self.string("dsh.workspace", "")
+            if workspace and not Path(workspace).is_absolute():
+                raise ConfigError("dsh.workspace must be an absolute path")
 
         assets = self.get("assets", {})
         if not isinstance(assets, dict):

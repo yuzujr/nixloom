@@ -14,12 +14,12 @@ import urllib.request
 from dataclasses import dataclass
 from pathlib import Path
 
-from . import __version__, openclaw, operations, runtime, sillytavern
+from . import __version__, dsh, operations, runtime, sillytavern
 from .config import Config, ConfigError, RuntimePaths
 
 UNIT_NAMES = {
     "runtime": "nixloom-runtime.service",
-    "openclaw": "nixloom-openclaw.service",
+    "dsh": "nixloom-dsh.service",
     "sillytavern": "nixloom-sillytavern.service",
     "all": "nixloom.target",
 }
@@ -137,13 +137,14 @@ def _service_specs(config: Config) -> list[ServiceSpec]:
             f"http://127.0.0.1:{llama_port}/health",
         )
     ]
-    if _unit_installed("openclaw"):
-        port = config.integer("ports.openclaw", minimum=1)
+    if _unit_installed("dsh"):
+        port = config.integer("ports.dsh", 3080, minimum=1)
         specs.append(
             ServiceSpec(
-                "openclaw",
-                UNIT_NAMES["openclaw"],
-                f"http://127.0.0.1:{port}/healthz",
+                "dsh",
+                UNIT_NAMES["dsh"],
+                f"http://127.0.0.1:{port}/",
+                frozenset({200, 401}),
             )
         )
     if _unit_installed("sillytavern"):
@@ -274,6 +275,9 @@ def command_start(args: argparse.Namespace) -> int:
             _print_ready_endpoints(current)
             return 0
     action = "Restarting" if args.restart else "Starting"
+    if any(spec.name == "dsh" for spec in specs):
+        paths = RuntimePaths.from_environment(args.config)
+        dsh.require_installed(config, paths)
     print(f"{action} NixLoom ({', '.join(spec.name for spec in specs)})...", flush=True)
     operations.systemctl(verb, "nixloom.target")
     # Starting an already-active target does not retry a failed Wanted unit.
@@ -373,10 +377,10 @@ def command_config(args: argparse.Namespace) -> None:
         else None
     )
     swap, document = runtime.swap_command(config, paths)
-    if "openclaw" in config.value:
-        openclaw.managed_settings(config)
     if "sillytavern" in config.value:
         sillytavern.command(config)
+    if "dsh" in config.value:
+        dsh.managed_settings(config)
     if args.verbose:
         print(runtime.render_command(llama))
         if image:
@@ -416,13 +420,18 @@ def command_service(args: argparse.Namespace) -> None:
             return
         runtime.check_assets(command, config, paths)
         runtime.execute(command)
-    elif args.service_name == "openclaw":
-        if args.prepare_only:
-            openclaw.prepare(config, paths)
-        else:
-            openclaw.run(config, paths, dry_run=args.dry_run)
     elif args.service_name == "sillytavern":
         sillytavern.run(config, paths, dry_run=args.dry_run)
+    elif args.service_name == "dsh":
+        if args.prepare_only:
+            dsh.install(config, paths, dry_run=args.dry_run)
+        else:
+            dsh.run(config, paths, dry_run=args.dry_run)
+
+
+def command_dsh(args: argparse.Namespace) -> None:
+    paths, config = _context(args.config)
+    dsh.invoke(config, paths, args.arguments)
 
 
 def command_backup(args: argparse.Namespace) -> None:
@@ -438,7 +447,7 @@ def command_backup(args: argparse.Namespace) -> None:
         == 0
     )
     if args.dry_run:
-        print(f"backup config, OpenClaw and SillyTavern state -> {destination}")
+        print(f"backup config, DSH and SillyTavern state -> {destination}")
         print(f"temporarily stop running stack: {str(running).lower()}")
         return
     try:
@@ -466,7 +475,6 @@ def command_test(args: argparse.Namespace) -> None:
         config,
         paths,
         skip_image=args.skip_image,
-        skip_agent=args.skip_agent,
     )
 
 
@@ -478,7 +486,7 @@ def parser() -> argparse.ArgumentParser:
         epilog="""Examples:
   nixloom start                 Start the stack and load the configured model
   nixloom status                Show services, endpoints and the loaded model
-  nixloom logs openclaw -f      Follow the OpenClaw journal
+  nixloom logs dsh -f           Follow the DSH journal
 
 Run 'nixloom COMMAND --help' for details about a command.""",
     )
@@ -526,7 +534,7 @@ Run 'nixloom COMMAND --help' for details about a command.""",
         nargs="?",
         default="all",
         metavar="SERVICE",
-        help="runtime, openclaw, sillytavern, or all (default: all)",
+        help="runtime, dsh, sillytavern, or all (default: all)",
     )
     logs.add_argument("-f", "--follow", action="store_true", help="follow new entries")
     logs.add_argument(
@@ -582,6 +590,18 @@ Run 'nixloom COMMAND --help' for details about a command.""",
 
     models.set_defaults(handler=models_handler)
 
+    frontend = commands.add_parser(
+        "dsh",
+        help="Invoke the managed DSH frontend",
+        usage="%(prog)s ACTION [ARG]...",
+    )
+    actions = frontend.add_subparsers(
+        dest="dsh_action", required=True, metavar="ACTION"
+    )
+    invoke = actions.add_parser("run", help="Run DSH commands using NixLoom state")
+    invoke.add_argument("arguments", nargs=argparse.REMAINDER, metavar="ARG")
+    frontend.set_defaults(handler=command_dsh)
+
     test = commands.add_parser(
         "test",
         help="Run live end-to-end regression checks",
@@ -589,9 +609,6 @@ Run 'nixloom COMMAND --help' for details about a command.""",
         usage="%(prog)s [OPTION]...",
     )
     test.add_argument("--skip-image", action="store_true", help="skip image generation")
-    test.add_argument(
-        "--skip-agent", action="store_true", help="skip the agent tool call"
-    )
     test.set_defaults(handler=command_test)
 
     backup = commands.add_parser(
@@ -618,7 +635,7 @@ def service_parser() -> argparse.ArgumentParser:
     )
     service.add_argument(
         "service_name",
-        choices=("runtime", "llama", "image", "openclaw", "sillytavern"),
+        choices=("runtime", "llama", "image", "dsh", "sillytavern"),
         metavar="NAME",
     )
     service.add_argument("--host", default="127.0.0.1", metavar="ADDRESS")

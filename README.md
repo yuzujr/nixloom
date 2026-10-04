@@ -2,13 +2,13 @@
 
 NixLoom is a modular local-AI runtime for NixOS. Its Python control plane runs
 one multimodal llama.cpp model and starts stable-diffusion.cpp on demand through
-llama-swap. OpenClaw and SillyTavern are independent Home Manager modules rather
+llama-swap. DSH and SillyTavern are independent Home Manager modules rather
 than built-in assumptions of the core runtime.
 
 ## Architecture
 
 ```text
-OpenClaw ─────── OpenAI chat + OpenAI Images ─┐
+DSH Web ──────── OpenAI chat + OpenAI Images ─┐
                                               │
 SillyTavern ─── OpenAI chat + sdcpp source ───┼── llama-swap
                                               │     ├── llama-server
@@ -62,7 +62,6 @@ Import the complete option set and enable only the frontends you want:
     enable = true;
     acceleration = "cuda";
     images.enable = true;
-    openclaw.enable = true;
     sillytavern.enable = true;
   };
 }
@@ -78,8 +77,50 @@ services.nixloom = {
 };
 ```
 
-Available modules are `core`, `openclaw`, `sillytavern`, and `default`.
+Available modules are `core`, `dsh`, `sillytavern`, and `default`.
 Enabling a frontend creates only that frontend's package and systemd unit.
+
+### DSH Web through npm
+
+DSH is the default frontend when NixLoom is enabled. Home Manager installs the
+pinned npm release and image plugin during activation, configures the local
+providers, and supplies Node, pnpm and the systemd user unit. No separate
+installation command is needed. Set `services.nixloom.dsh.enable = false` for
+a runtime without DSH.
+
+```bash
+nixloom start
+nixloom logs dsh
+```
+
+The journal prints the authenticated Web URL. The default port is 3080.
+Activation downloads packages only when the configured version or image plugin
+is missing; subsequent activations reuse them. Change `dsh.version` in YAML
+and activate Home Manager again to upgrade. Installation needs network access
+on the first activation; a failed download fails activation instead of leaving
+a partial npm release. Service startup does not download packages.
+
+- program and npm lock: `~/.cache/nixloom/dsh/releases/<version>`
+- npm/pnpm/native caches: `~/.cache/nixloom/dsh`
+- configuration, plugins, sessions and attachments: `~/.local/state/nixloom/.dsh`
+- default workspace: `~/.local/share/nixloom/dsh/workspace`
+
+Custom NixLoom XDG paths apply to all four locations. `dsh.workspace` may select
+another absolute directory; a working directory is not an access sandbox.
+`nixloom dsh run plugin --profile web add <package>` runs DSH's plugin manager
+with the same environment as the service. Extra plugins remain user-managed.
+
+NixLoom synchronizes its local model route, context/output limits and Qwen
+thinking controls, preserving other providers and plugin settings. When images
+are enabled it installs `dsh-image-gen` 0.8.5 and connects its OpenAI-compatible
+provider to the existing SD endpoint; no second image runtime is installed.
+Image editing still depends on the capabilities of the selected SD backend.
+
+The npm launcher exposes Node internals through Node's own loader because the
+upstream native getter does not recognize Nix-built Node. Installation also
+corrects DSH's `/bin/bash` default for NixOS and redirects Web's first-use
+workspace into the configured NixLoom directory. These workarounds belong to NixLoom
+and can be removed when upstream supports this environment directly.
 
 ## Configuration
 
@@ -96,7 +137,7 @@ The important YAML sections are:
 
 - `llm`: model, vision projector, context, reasoning and sampling settings
 - `images`: stable-diffusion.cpp precision and image profiles
-- `openclaw`: optional OpenClaw workspace and Yuanbao channel
+- `dsh`: pinned npm version and optional workspace
 - `sillytavern`: optional bind, authentication and managed preset
 - `assets`: pinned downloadable files with exact sizes and SHA-256 hashes
 
@@ -122,12 +163,12 @@ the stack is stopped or degraded. `logs all` merges the journals of every
 installed NixLoom service.
 
 `nixloom test` is the single useful live regression suite. It verifies exact
-chat/reasoning/vision results, decodes a generated image, swaps back to the LLM,
-and makes OpenClaw invoke a harmless shell tool. Use `--skip-image` or
-`--skip-agent` to omit the expensive portions.
+chat/reasoning/vision results, decodes a generated image, and swaps back to the
+LLM. Use `--skip-image` to omit image generation.
 
 `nixloom backup` temporarily stops the stack and archives only user-owned
-configuration plus OpenClaw and SillyTavern state. Models and caches are
+configuration plus DSH and SillyTavern state. Models, caches and DSH's
+reinstallable `node_modules` directories are
 excluded.
 
 ## Development

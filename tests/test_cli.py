@@ -30,9 +30,7 @@ class CliTests(unittest.TestCase):
             ServiceSpec(
                 "runtime", "nixloom-runtime.service", "http://127.0.0.1:8080/health"
             ),
-            ServiceSpec(
-                "openclaw", "nixloom-openclaw.service", "http://127.0.0.1:18789/healthz"
-            ),
+            ServiceSpec("dsh", "nixloom-dsh.service", "http://127.0.0.1:3080/"),
             ServiceSpec(
                 "sillytavern", "nixloom-sillytavern.service", "http://127.0.0.1:8000/"
             ),
@@ -59,6 +57,17 @@ class CliTests(unittest.TestCase):
         self.assertIsNone(args.config)
         self.assertIs(args.handler, command_service)
 
+    def test_activation_installs_dsh_before_service_start(self) -> None:
+        args = service_parser().parse_args(["dsh", "--prepare-only"])
+        with (
+            patch("nixloom.cli._context", return_value=(self.paths, self.config)),
+            patch("nixloom.cli.dsh.install") as install,
+            patch("nixloom.cli.dsh.run") as run,
+        ):
+            command_service(args)
+        install.assert_called_once_with(self.config, self.paths, dry_run=False)
+        run.assert_not_called()
+
     def test_status_combines_systemd_and_endpoint_state_once(self) -> None:
         output = io.StringIO()
         with (
@@ -72,7 +81,7 @@ class CliTests(unittest.TestCase):
         self.assertEqual(result, 0)
         self.assertIn("NixLoom: ready (3/3 services healthy)", rendered)
         self.assertEqual(rendered.count("runtime"), 1)
-        self.assertEqual(rendered.count("openclaw"), 1)
+        self.assertEqual(rendered.count("dsh"), 1)
         self.assertEqual(rendered.count("sillytavern"), 1)
         self.assertIn("Model: qwen (ready)", rendered)
 
@@ -118,6 +127,7 @@ class CliTests(unittest.TestCase):
                 side_effect=[self.reports("inactive", "down"), self.reports()],
             ),
             patch("nixloom.cli._configured_model_ready", return_value=False),
+            patch("nixloom.cli.dsh.require_installed"),
             patch("nixloom.cli._wait_for_endpoint") as wait,
             patch("nixloom.cli._warm_model") as warm,
             patch("nixloom.cli.operations.systemctl") as systemctl,
@@ -138,7 +148,7 @@ class CliTests(unittest.TestCase):
             [call.args[0].name for call in wait.call_args_list],
             [
                 "runtime",
-                "openclaw",
+                "dsh",
                 "sillytavern",
             ],
         )

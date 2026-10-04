@@ -141,10 +141,20 @@ def create_backup(config: Config, paths: RuntimePaths, destination: Path) -> Pat
         shutil.copy2(paths.config_file, stage / "config.yaml")
         staged_state = stage / "state"
         staged_state.mkdir()
-        for relative in (Path(".openclaw"), Path(".sillytavern/xdg-data")):
+        for relative in (
+            Path(".dsh"),
+            Path(".sillytavern/xdg-data"),
+        ):
             source = paths.state / relative
             if source.exists():
-                shutil.copytree(source, staged_state / relative, symlinks=True)
+                shutil.copytree(
+                    source,
+                    staged_state / relative,
+                    symlinks=True,
+                    ignore=shutil.ignore_patterns("node_modules")
+                    if relative == Path(".dsh")
+                    else None,
+                )
         for database in staged_state.rglob("*.db"):
             source = paths.state / database.relative_to(staged_state)
             if source.is_file():
@@ -231,101 +241,11 @@ def _image_bytes(response: dict[str, Any]) -> bytes:
     return image
 
 
-def _test_openclaw_agent(config: Config, paths: RuntimePaths) -> None:
-    installed = (
-        subprocess.run(
-            ["systemctl", "--user", "cat", "nixloom-openclaw.service"],
-            check=False,
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
-        ).returncode
-        == 0
-    )
-    if not installed:
-        print("skip agent (OpenClaw module is not installed)")
-        return
-    token_path = paths.state / ".run/openclaw-gateway-token"
-    config_path = paths.state / ".openclaw/openclaw.json"
-    if not token_path.is_file() or not config_path.is_file():
-        raise ConfigError("OpenClaw runtime state is incomplete; start NixLoom first")
-    environment = os.environ.copy()
-    environment.update(
-        {
-            "OPENCLAW_STATE_DIR": str(config_path.parent),
-            "OPENCLAW_CONFIG_PATH": str(config_path),
-            "OPENCLAW_GATEWAY_TOKEN": token_path.read_text(encoding="utf-8").strip(),
-            # The managed config can include packaged OpenClaw plugins.  The
-            # CLI must use the same Nix-mode loading semantics as the Gateway.
-            "OPENCLAW_NIX_MODE": "1",
-            "NIXLOOM_OPENCLAW_SYNC_MEDIA": "1",
-        }
-    )
-    try:
-        result = subprocess.run(
-            [
-                "openclaw",
-                "agent",
-                "--agent",
-                "main",
-                "--session-id",
-                "nixloom-regression",
-                # A model override makes the OpenClaw CLI use its trusted
-                # backend Gateway client identity.  Without it the CLI may
-                # fail device pairing and silently use an embedded agent,
-                # which would not exercise the running Gateway at all.
-                "--model",
-                f"nixloom/{config.string('llm.id')}",
-                "--message",
-                "Use a shell tool to run printf NIXLOOM_AGENT_TOOL_OK, then reply with exactly that stdout.",
-                "--thinking",
-                "off",
-                "--timeout",
-                "900",
-                "--json",
-            ],
-            check=True,
-            capture_output=True,
-            text=True,
-            timeout=1000,
-            env=environment,
-        )
-    except (OSError, subprocess.CalledProcessError, subprocess.TimeoutExpired) as error:
-        raise ConfigError(f"OpenClaw agent regression failed: {error}") from error
-    try:
-        response = json.loads(result.stdout)
-        details = response["result"]["meta"]
-        visible = details["finalAssistantVisibleText"].strip()
-        tools = details["toolSummary"]
-    except (KeyError, TypeError, json.JSONDecodeError) as error:
-        raise ConfigError(
-            "OpenClaw agent regression returned an unexpected response"
-        ) from error
-    if details.get("transport") == "embedded" or details.get("fallbackFrom"):
-        raise ConfigError(
-            "OpenClaw agent regression used an embedded fallback instead of "
-            "the running Gateway"
-        )
-    if visible != "NIXLOOM_AGENT_TOOL_OK":
-        raise ConfigError(
-            f"OpenClaw agent regression returned unexpected text: {visible!r}"
-        )
-    if (
-        tools.get("calls", 0) < 1
-        or "exec" not in tools.get("tools", [])
-        or tools.get("failures") != 0
-    ):
-        raise ConfigError(
-            "OpenClaw agent regression did not successfully invoke the exec tool"
-        )
-    print("ok  agent tool call")
-
-
 def live_test(
     config: Config,
     paths: RuntimePaths,
     *,
     skip_image: bool = False,
-    skip_agent: bool = False,
 ) -> None:
     port = config.integer("ports.llama", minimum=1)
     base = f"http://127.0.0.1:{port}"
@@ -414,8 +334,6 @@ def live_test(
                 "LLM did not return the expected response after the image swap"
             )
         print("ok  swap-back")
-    if not skip_agent:
-        _test_openclaw_agent(config, paths)
 
 
 def systemctl(*arguments: str, check: bool = True) -> subprocess.CompletedProcess[str]:
