@@ -9,11 +9,15 @@ import tempfile
 from pathlib import Path
 from typing import Any
 
+from .comfy import workflows
 from .config import Config, ConfigError, RuntimePaths
 
 IMAGE_SETTING_KEYS = frozenset(
     {
         "source",
+        "comfy_url",
+        "comfy_workflow",
+        "comfy_type",
         "sdcpp_url",
         "model",
         "sampler",
@@ -71,27 +75,20 @@ def _generation_settings(config: Config, base_url: str) -> dict[str, Any]:
 
 
 def _image_settings(config: Config, image_url: str) -> dict[str, Any]:
-    _, profile = config.image_profile()
-    try:
-        width_text, height_text = str(profile["size"]).lower().split("x", 1)
-        width, height = int(width_text), int(height_text)
-    except (TypeError, ValueError) as error:
-        raise ConfigError("image profile size must use WIDTHxHEIGHT") from error
-    if width < 64 or height < 64:
-        raise ConfigError("image profile dimensions must be at least 64x64")
-    prompt_prefix = str(profile["prompt_prefix"]).strip(" ,")
+    name = config.string("images.generate")
+    profile = config.get("images.profiles." + name, required=True)
+    width, height = map(int, profile["size"].split("x"))
     return {
-        "source": "sdcpp",
-        "sdcpp_url": image_url,
-        "model": Path(str(profile["model_file"])).stem,
-        "sampler": profile["sampler"],
-        "scheduler": profile["scheduler"],
-        "steps": profile["steps"],
-        "scale": profile["cfg_scale"],
+        "source": "comfy",
+        "comfy_type": "standard",
+        "comfy_url": image_url,
+        "comfy_workflow": f"NixLoom_{name}.json",
         "width": width,
         "height": height,
-        "negative_prompt": profile["negative_prompt"],
-        "prompt_prefix": prompt_prefix,
+        "steps": profile["steps"],
+        "scale": 1,
+        "prompt_prefix": "",
+        "negative_prompt": "",
     }
 
 
@@ -100,9 +97,7 @@ def sync_settings(config: Config, settings_path: Path) -> bool:
         return False
     settings = _load_json(settings_path)
     llama_url = f"http://127.0.0.1:{config.integer('ports.llama', minimum=1)}/v1"
-    image_url = (
-        f"http://127.0.0.1:{config.integer('ports.llama', minimum=1)}/upstream/sd"
-    )
+    image_url = f"http://127.0.0.1:{config.integer('ports.comfyui', 8188, minimum=1)}"
     managed = _generation_settings(config, llama_url)
     preset_name = config.string("sillytavern.preset")
     preset_dir = settings_path.parent / "OpenAI Settings"
@@ -138,7 +133,21 @@ def sync_settings(config: Config, settings_path: Path) -> bool:
     if not isinstance(image, dict):
         raise ConfigError("SillyTavern extension_settings.sd must be an object")
     if config.boolean("images.enabled"):
+        image.pop("sdcpp_url", None)
         image.update(_image_settings(config, image_url))
+        directory = settings_path.parent / "user/workflows"
+        directory.mkdir(parents=True, exist_ok=True)
+        name = config.string("images.generate")
+        graph = workflows(config)[name]
+        graph["6"]["inputs"].update(width="%width%", height="%height%")
+        sampler = "19" if graph["8"]["class_type"] == "SamplerCustomAdvanced" else "8"
+        graph[sampler]["inputs"]["steps"] = "%steps%"
+        document = (
+            json.dumps(graph, indent=2)
+            .replace("{{prompt}}", "%prompt%")
+            .replace("{{seed}}", "%seed%")
+        )
+        (directory / f"NixLoom_{name}.json").write_text(document + "\n")
     else:
         for key in IMAGE_SETTING_KEYS:
             image.pop(key, None)
@@ -223,7 +232,7 @@ def run(config: Config, paths: RuntimePaths, *, dry_run: bool = False) -> None:
         synchronized = sync_settings(config, settings_path)
         if synchronized:
             print(
-                "SillyTavern local chat and stable-diffusion.cpp profiles synchronized.",
+                "SillyTavern chat and ComfyUI workflow synchronized.",
                 file=sys.stderr,
             )
     except (OSError, ValueError, json.JSONDecodeError) as error:

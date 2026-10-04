@@ -113,13 +113,6 @@ class Config:
         path = Path(value).expanduser()
         return path if path.is_absolute() else paths.data / path
 
-    def image_profile(self) -> tuple[str, dict[str, Any]]:
-        name = self.string("images.profile")
-        profile = self.get(f"images.profiles.{name}", required=True)
-        if not isinstance(profile, dict):
-            raise ConfigError(f"images.profiles.{name} must be a mapping")
-        return name, profile
-
     def string(self, key: str, default: str | None = None) -> str:
         value = self.get(key, default, required=default is None)
         if not isinstance(value, str):
@@ -149,15 +142,43 @@ class Config:
         configured_ports = self.get("ports", required=True)
         if not isinstance(configured_ports, dict):
             raise ConfigError("ports must be a mapping")
-        for name in ("llama", "dsh", "sillytavern"):
-            if name not in configured_ports and name != "llama":
-                continue
-            port = self.integer(f"ports.{name}", minimum=1)
+        for name, default in {
+            "llama": 8080,
+            "dsh": 3080,
+            "sillytavern": 8000,
+            "swap": 8187,
+            "comfyui": 8188,
+            "comfy_backend": 8189,
+        }.items():
+            port = self.integer(f"ports.{name}", default, minimum=1)
             if port > 65535:
                 raise ConfigError(f"ports.{name} must be <= 65535")
             ports.append(port)
         if len(ports) != len(set(ports)):
             raise ConfigError("configured ports must be distinct")
+
+        if self.boolean("video.enabled", False):
+            if not self.boolean("images.enabled"):
+                raise ConfigError(
+                    "video requires images.enabled for the ComfyUI runtime"
+                )
+            for key in ("model_file", "text_encoder", "video_vae", "audio_vae"):
+                value = self.string("video." + key)
+                if Path(value).is_absolute() or ".." in Path(value).parts:
+                    raise ConfigError(
+                        f"video.{key} must be relative to the ComfyUI model directory"
+                    )
+            size = self.string("video.size")
+            if not re.fullmatch(r"[0-9]+x[0-9]+", size) or any(
+                int(x) < 32 or int(x) % 32 for x in size.split("x")
+            ):
+                raise ConfigError("video.size must be WIDTHxHEIGHT in multiples of 32")
+            frames = self.integer("video.frames", minimum=5)
+            if (frames - 5) % 17:
+                raise ConfigError(
+                    "video.frames must be 17k+5, for example 124 (~5 seconds)"
+                )
+            self.integer("video.steps", minimum=1)
 
         self.string("llm.id")
         self.string("llm.model_file")
@@ -222,41 +243,64 @@ class Config:
                 "images.enabled requires services.nixloom.images.enable in Home Manager"
             )
         if images_enabled:
-            self.string("images.weight_type")
-            self.boolean("images.flash_attention")
-            self.boolean("images.offload_to_cpu", False)
-            name, profile = self.image_profile()
-            for field in (
-                "model_file",
-                "size",
-                "sampler",
-                "scheduler",
-                "negative_prompt",
-                "prompt_prefix",
-            ):
-                if not isinstance(profile.get(field), str):
+            reserve = self.number("images.reserve_vram", 0.5)
+            if reserve < 0:
+                raise ConfigError("images.reserve_vram must be non-negative")
+            profiles = self.get("images.profiles", required=True)
+            if not isinstance(profiles, dict) or not profiles:
+                raise ConfigError("images.profiles must be a non-empty mapping")
+            for name, profile in profiles.items():
+                if (
+                    not isinstance(name, str)
+                    or not re.fullmatch(r"[A-Za-z0-9_-]+", name)
+                    or not isinstance(profile, dict)
+                ):
                     raise ConfigError(
-                        f"images.profiles.{name}.{field} must be a string"
+                        "image profile names must use letters, digits, '_' or '-'"
                     )
-            if (
-                isinstance(profile.get("steps"), bool)
-                or not isinstance(profile.get("steps"), int)
-                or profile["steps"] < 1
-            ):
-                raise ConfigError(
-                    f"images.profiles.{name}.steps must be a positive integer"
-                )
-            if isinstance(profile.get("cfg_scale"), bool) or not isinstance(
-                profile.get("cfg_scale"), (int, float)
-            ):
-                raise ConfigError(f"images.profiles.{name}.cfg_scale must be a number")
-            lora = profile.get("lora", "")
-            if lora and not isinstance(lora, str):
-                raise ConfigError(f"images.profiles.{name}.lora must be a string")
-            if lora and not isinstance(profile.get("lora_mult"), (int, float)):
-                raise ConfigError(
-                    f"images.profiles.{name}.lora_mult must be a number when lora is set"
-                )
+                for field in (
+                    "model_file",
+                    "text_encoder",
+                    "vae",
+                    "architecture",
+                    "task",
+                    "size",
+                ):
+                    if not isinstance(profile.get(field), str) or not profile[field]:
+                        raise ConfigError(
+                            f"images.profiles.{name}.{field} must be a non-empty string"
+                        )
+                if profile["architecture"] not in {"zimage", "flux2"}:
+                    raise ConfigError(f"unsupported image architecture: {name}")
+                if profile["task"] not in {"generate", "edit"}:
+                    raise ConfigError(f"unsupported image task: {name}")
+                if profile["task"] == "edit" and profile["architecture"] != "flux2":
+                    raise ConfigError("reference editing requires flux2")
+                if not re.fullmatch(r"[1-9][0-9]*x[1-9][0-9]*", profile["size"]):
+                    raise ConfigError("image profile size must use WIDTHxHEIGHT")
+                width, height = map(int, profile["size"].split("x"))
+                if min(width, height) < 64 or width % 16 or height % 16:
+                    raise ConfigError(
+                        "image dimensions must be >=64 and multiples of 16"
+                    )
+                if (
+                    isinstance(profile.get("steps"), bool)
+                    or not isinstance(profile.get("steps"), int)
+                    or profile["steps"] < 1
+                ):
+                    raise ConfigError(
+                        f"images.profiles.{name}.steps must be a positive integer"
+                    )
+                for field in ("model_file", "text_encoder", "vae"):
+                    path = Path(profile[field])
+                    if path.is_absolute() or ".." in path.parts:
+                        raise ConfigError(
+                            f"{field} must be relative to its ComfyUI model folder"
+                        )
+            for task in ("generate", "edit"):
+                selected = self.string(f"images.{task}")
+                if selected not in profiles or profiles[selected]["task"] != task:
+                    raise ConfigError(f"images.{task} must select a {task} profile")
 
         if "sillytavern" in self.value:
             self.string("sillytavern.preset")

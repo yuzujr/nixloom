@@ -2,6 +2,7 @@
     lib,
     pkgs,
     source,
+    comfyui,
 }:
 let
     nixloom = pkgs.python3Packages.buildPythonApplication {
@@ -10,7 +11,10 @@ let
         src = source;
         pyproject = true;
         build-system = [ pkgs.python3Packages.setuptools ];
-        dependencies = [ pkgs.python3Packages.pyyaml ];
+        dependencies = [
+            pkgs.python3Packages.pyyaml
+            pkgs.python3Packages.aiohttp
+        ];
         nativeBuildInputs = [ pkgs.makeWrapper ];
         nativeCheckInputs = [
             pkgs.python3Packages.pyyaml
@@ -44,11 +48,9 @@ in
     llama-cpu = pkgs.llama-cpp;
     llama-cuda = llamaCuda;
     llama-vulkan = pkgs.llama-cpp-vulkan;
-    image-cpu = pkgs.stable-diffusion-cpp;
-    image-cuda = pkgs.stable-diffusion-cpp-cuda;
-    image-vulkan = pkgs.stable-diffusion-cpp-vulkan;
+    comfyui = pkgs.comfyui;
 }
 // lib.optionalAttrs pkgs.stdenv.hostPlatform.isx86_64 {
+    comfyui-cuda = import ./comfyui.nix { inherit lib pkgs comfyui; };
     llama-rocm = pkgs.llama-cpp-rocm;
-    image-rocm = pkgs.stable-diffusion-cpp-rocm;
 }

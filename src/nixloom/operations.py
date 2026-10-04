@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import base64
-import binascii
 import hashlib
 import json
 import os
@@ -13,7 +12,9 @@ import struct
 import subprocess
 import tarfile
 import tempfile
+import time
 import urllib.error
+import urllib.parse
 import urllib.request
 import zlib
 from collections.abc import Iterable
@@ -21,6 +22,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
+from . import comfy
 from .config import Config, ConfigError, RuntimePaths
 
 
@@ -226,19 +228,59 @@ def _choice_text(response: dict[str, Any], label: str) -> str:
     return content.strip()
 
 
-def _image_bytes(response: dict[str, Any]) -> bytes:
-    data = response.get("data")
-    item = data[0] if isinstance(data, list) and data else None
-    encoded = item.get("b64_json") if isinstance(item, dict) else None
-    if not isinstance(encoded, str):
-        raise ConfigError("OpenAI Images regression returned no base64 image")
-    try:
-        image = base64.b64decode(encoded, validate=True)
-    except (ValueError, binascii.Error) as error:
-        raise ConfigError("OpenAI Images regression returned invalid base64") from error
-    if not image.startswith((b"\x89PNG\r\n\x1a\n", b"\xff\xd8\xff")):
-        raise ConfigError("OpenAI Images regression returned an unknown image format")
-    return image
+def _comfy_image(config: Config, name: str, prompt: str, *, image: str = "") -> bytes:
+    graph = comfy.workflows(config)[name]
+    document = json.dumps(graph).replace("{{prompt}}", "__NIXLOOM_PROMPT__")
+    graph = json.loads(document)
+    for node in graph.values():
+        for key, value in node["inputs"].items():
+            if value == "__NIXLOOM_PROMPT__":
+                node["inputs"][key] = prompt
+            elif value == "{{seed}}":
+                node["inputs"][key] = 42
+            elif value == "{{image}}":
+                node["inputs"][key] = image
+    base = f"http://127.0.0.1:{config.integer('ports.comfyui', 8188, minimum=1)}"
+    response = _json_request(base + "/prompt", {"prompt": graph}, 900)
+    prompt_id = response.get("prompt_id")
+    if not prompt_id:
+        raise ConfigError(f"ComfyUI rejected workflow: {response}")
+    deadline = time.monotonic() + 7200
+    while time.monotonic() < deadline:
+        with urllib.request.urlopen(
+            base + "/history/" + prompt_id, timeout=30
+        ) as response:
+            history = json.load(response).get(prompt_id)
+        if history:
+            if history.get("status", {}).get("status_str") != "success":
+                raise ConfigError(f"ComfyUI execution failed: {history.get('status')}")
+            images = history.get("outputs", {}).get("10", {}).get("images", [])
+            if not images:
+                raise ConfigError("ComfyUI returned no output image")
+            with urllib.request.urlopen(
+                base + "/view?" + urllib.parse.urlencode(images[0]), timeout=30
+            ) as response:
+                return response.read()
+        time.sleep(0.5)
+    raise ConfigError("ComfyUI generation timed out")
+
+
+def _comfy_upload(config: Config, data: bytes) -> str:
+    boundary = "nixloom-regression-upload"
+    body = (
+        f'--{boundary}\r\nContent-Disposition: form-data; name="image"; filename="regression.png"\r\nContent-Type: image/png\r\n\r\n'.encode()
+        + data
+        + f"\r\n--{boundary}--\r\n".encode()
+    )
+    url = f"http://127.0.0.1:{config.integer('ports.comfyui', 8188, minimum=1)}/upload/image"
+    request = urllib.request.Request(
+        url,
+        data=body,
+        headers={"Content-Type": f"multipart/form-data; boundary={boundary}"},
+    )
+    with urllib.request.urlopen(request, timeout=30) as response:
+        value = json.load(response)
+    return "/".join(part for part in (value.get("subfolder"), value["name"]) if part)
 
 
 def live_test(
@@ -313,21 +355,20 @@ def live_test(
             )
         print(f"ok  {label}")
     if config.boolean("images.enabled") and not skip_image:
-        _, profile = config.image_profile()
-        prompt = "simple blue circle on a white background, test image"
-        response = _json_request(
-            f"{base}/upstream/sd/v1/images/generations",
-            {
-                "model": Path(str(profile["model_file"])).stem,
-                "prompt": prompt,
-                "size": "512x512",
-                "n": 1,
-                "response_format": "b64_json",
-            },
-            7200,
+        image = _comfy_image(
+            config,
+            config.string("images.generate"),
+            "A realistic photograph of a woman in a green jacket sitting at a coastal cafe, natural light.",
         )
-        _image_bytes(response)
-        print("ok  image (OpenAI Images API)")
+        print("ok  image (Z-Image / ComfyUI)")
+        reference = _comfy_upload(config, image)
+        _comfy_image(
+            config,
+            config.string("images.edit"),
+            "Change the jacket to red. Preserve the person's face, pose, and background.",
+            image=reference,
+        )
+        print("ok  edit (Klein / ComfyUI)")
         response = _json_request(f"{base}/v1/chat/completions", cases[0][1], 900)
         if _choice_text(response, "swap-back") != "OK":
             raise ConfigError(

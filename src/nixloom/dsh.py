@@ -41,13 +41,21 @@ def environment(config: Config, paths: RuntimePaths) -> dict[str, str]:
         PNPM_HOME=str(paths.cache / "dsh/pnpm"),
         npm_config_store_dir=str(paths.cache / "dsh/pnpm-store"),
         NARB_NATIVE_CACHE_DIR=str(paths.cache / "dsh/native"),
-        DSH_IMAGE_GEN_OPENAI_COMPAT_KEY="nixloom-local",
         TAVILY_API_KEY=config.string("credentials.tavily_api_key", ""),
         NIXLOOM_DSH_WORKSPACE=str(workspace(config, paths)),
         NIXLOOM_DSH_BASH=os.environ.get("NIXLOOM_DSH_BASH")
         or shutil.which("bash")
         or "/run/current-system/sw/bin/bash",
     )
+    if config.boolean("images.enabled"):
+        result["NIXLOOM_DSH_IMAGE_WORKFLOWS"] = json.dumps(
+            {
+                "generate": config.string("images.generate"),
+                "edit": config.string("images.edit"),
+            }
+        )
+    else:
+        result.pop("NIXLOOM_DSH_IMAGE_WORKFLOWS", None)
     library_path = os.environ.get("NIXLOOM_DSH_LIBRARY_PATH", "")
     if library_path:
         result["LD_LIBRARY_PATH"] = (
@@ -179,12 +187,17 @@ def managed_settings(config: Config) -> list[dict[str, Any]]:
 
 
 def _image_settings(config: Config) -> dict[str, Any]:
-    _, profile = config.image_profile()
+    from .comfy import workflows
+
     return {
-        "provider": "openai-compat",
-        "openaiCompatBaseURL": f"http://127.0.0.1:{config.integer('ports.llama', minimum=1)}/upstream/sd/v1",
-        "openaiCompatModel": Path(str(profile["model_file"])).stem,
-        "openaiCompatSizes": {"1:1": {"1K": str(profile["size"])}},
+        "provider": "comfyui",
+        "comfyuiBaseURL": f"http://127.0.0.1:{config.integer('ports.comfyui', 8188, minimum=1)}",
+        "comfyuiWorkflows": [
+            {"name": name, "json": json.dumps(graph), "presetPrompt": ""}
+            for name, graph in workflows(config).items()
+        ],
+        "comfyuiActiveWorkflow": config.string("images.generate"),
+        "comfyuiTimeoutMs": 900000,
         "saveToWorkspace": True,
     }
 
@@ -302,7 +315,14 @@ def prepare(config: Config, paths: RuntimePaths) -> None:
         if row is None:
             rows.append({"id": "image-gen", "config": _image_settings(config)})
         else:
-            row.setdefault("config", {}).update(_image_settings(config))
+            settings = row.setdefault("config", {})
+            for key in (
+                "openaiCompatBaseURL",
+                "openaiCompatModel",
+                "openaiCompatSizes",
+            ):
+                settings.pop(key, None)
+            settings.update(_image_settings(config))
         _write_yaml(patch, rows)
     else:
         rows = yaml.safe_load(patch.read_text(encoding="utf-8"))

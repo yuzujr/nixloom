@@ -1,6 +1,9 @@
 { pkgs }:
 let
-  python = pkgs.python3.withPackages (packages: [ packages.pyyaml ]);
+  python = pkgs.python3.withPackages (packages: [
+    packages.pyyaml
+    packages.aiohttp
+  ]);
 in
 pkgs.mkShell {
   packages = [

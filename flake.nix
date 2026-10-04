@@ -2,6 +2,7 @@
     description = "NixLoom: a modular local-AI runtime for NixOS";
 
     inputs.nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
+    inputs.comfyui.url = "github:utensils/comfyui-nix/58f91b001c99a97df46b7be8d58b08f01cb8f6ff";
     inputs.home-manager = {
         url = "github:nix-community/home-manager";
         inputs.nixpkgs.follows = "nixpkgs";
@@ -12,6 +13,7 @@
             self,
             nixpkgs,
             home-manager,
+            comfyui,
             ...
         }:
         let
@@ -55,7 +57,7 @@
             packages = forAllSystems (
                 system:
                 import ./nix/packages.nix {
-                    inherit lib source;
+                    inherit lib source comfyui;
                     pkgs = pkgsFor system;
                 }
             );

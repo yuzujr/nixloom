@@ -116,8 +116,10 @@ class DshTests(unittest.TestCase):
         )
         rows = yaml.safe_load((profile / "cordis.patch.yml").read_text())
         image = next(row["config"] for row in rows if row.get("id") == "image-gen")
+        self.assertEqual(image["comfyuiBaseURL"], "http://127.0.0.1:8188")
+        self.assertEqual(image["provider"], "comfyui")
         self.assertEqual(
-            image["openaiCompatBaseURL"], "http://127.0.0.1:8080/upstream/sd/v1"
+            {x["name"] for x in image["comfyuiWorkflows"]}, {"z-image", "klein-edit"}
         )
         self.assertEqual(run.call_args.kwargs["cwd"], self.paths.data / "dsh/workspace")
         self.assertEqual(
@@ -194,16 +196,21 @@ class DshTests(unittest.TestCase):
             patch("nixloom.dsh.os.chdir"),
             patch("nixloom.dsh.os.execvpe") as execute,
             patch.dict("os.environ", {"NIXLOOM_DSH_TAILNET": "1"}),
-            patch("nixloom.dsh.tailnet_identity", return_value={
-                "hostname": "laptop.example.ts.net",
-                "addresses": ["100.64.0.2"],
-                "peers": ["100.64.0.3"],
-            }),
+            patch(
+                "nixloom.dsh.tailnet_identity",
+                return_value={
+                    "hostname": "laptop.example.ts.net",
+                    "addresses": ["100.64.0.2"],
+                    "peers": ["100.64.0.3"],
+                },
+            ),
         ):
             dsh.run(self.config, self.paths)
         hosts = ["laptop.example.ts.net:3080", "laptop:3080", "100.64.0.2:3080"]
         command_args = execute.call_args.args[1]
-        self.assertEqual(command_args[command_args.index("--trusted-host") + 1:], hosts)
+        self.assertEqual(
+            command_args[command_args.index("--trusted-host") + 1 :], hosts
+        )
         self.assertEqual(
             json.loads(execute.call_args.args[2]["NIXLOOM_DSH_TAILNET_HOSTS"]), hosts
         )

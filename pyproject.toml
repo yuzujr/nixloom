@@ -7,7 +7,7 @@ name = "nixloom"
 version = "0.2.0"
 description = "A modular local-AI runtime for NixOS"
 requires-python = ">=3.11"
-dependencies = ["PyYAML>=6"]
+dependencies = ["PyYAML>=6", "aiohttp>=3.12"]
 
 [project.scripts]
 nixloom = "nixloom.cli:main"
@@ -19,4 +19,4 @@ package-dir = {"" = "src"}
 where = ["src"]
 
 [tool.setuptools.package-data]
-nixloom = ["*.cjs", "*.mjs", "dsh-patches/*"]
+nixloom = ["*.cjs", "*.mjs", "dsh-patches/*", "comfy_nodes/*.py"]

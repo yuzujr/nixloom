@@ -1,0 +1,32 @@
+{
+    "safetensors": {
+        "version": "0.8.0",
+        "url": "https://files.pythonhosted.org/packages/28/50/f203ff3a3ddfe19308efc83c5a3a29ed02bf786732ec35e68bf9162f3365/safetensors-0.8.0-cp310-abi3-manylinux_2_17_x86_64.manylinux2014_x86_64.whl",
+        "hash": "sha256-/W8/k8mgp8wniO5j+3YzU9S9LomwdRvHj8992gC+p3Q="
+    },
+    "tokenizers": {
+        "version": "0.23.2",
+        "url": "https://files.pythonhosted.org/packages/2c/ca/ca6b93c7820df123b2662a9469e8facc826ccc94e98fdd0d615f6431e73a/tokenizers-0.23.2-cp310-abi3-manylinux_2_17_x86_64.manylinux2014_x86_64.whl",
+        "hash": "sha256-QcL4TRckSbTa25zcUI4+NkB2YTw1sW527P5Hpg0eMwU="
+    },
+    "kornia-rs": {
+        "version": "0.1.14",
+        "url": "https://files.pythonhosted.org/packages/72/7f/01c9456a09a3a5731bf986724f6f6ff70d627ac8072cf298d842ec204692/kornia_rs-0.1.14-cp312-cp312-manylinux_2_17_x86_64.manylinux2014_x86_64.whl",
+        "hash": "sha256-OW+EZh/PJgiFw/nbcXyvaQTq/USFfcoXvgmoNb19qNk="
+    },
+    "hf-xet": {
+        "version": "1.6.0",
+        "url": "https://files.pythonhosted.org/packages/67/4e/a28359bf1c1ecf11eba22123168c138698f7cb576ac678f5a2e16cd5da08/hf_xet-1.6.0-cp38-abi3-manylinux2014_x86_64.manylinux_2_17_x86_64.whl",
+        "hash": "sha256-1iZxuxMIec7w7kyevkehSvbGbsU+bYTcFZNuX/36yC8="
+    },
+    "sentencepiece": {
+        "version": "0.2.1",
+        "url": "https://files.pythonhosted.org/packages/04/88/14f2f4a2b922d8b39be45bf63d79e6cd3a9b2f248b2fcb98a69b12af12f5/sentencepiece-0.2.1-cp312-cp312-manylinux_2_27_x86_64.manylinux_2_28_x86_64.whl",
+        "hash": "sha256-DN/s70MNmF8cK8v/8979HZXa6Hb70BczdgEtLX0kBEs="
+    },
+    "blake3": {
+        "version": "1.0.8",
+        "url": "https://files.pythonhosted.org/packages/5b/94/eafaa5cdddadc0c9c603a6a6d8339433475e1a9f60c8bb9c2eed2d8736b6/blake3-1.0.8-cp312-cp312-manylinux_2_17_x86_64.manylinux2014_x86_64.whl",
+        "hash": "sha256-UE0Tmbf7kd/lwlci0oB5kEkxhfqhkXRWRVSAw2hnrbU="
+    }
+}

@@ -18,7 +18,7 @@ class SillyTavernTests(unittest.TestCase):
         self.assertEqual(launch[launch.index("--listen") + 1], "false")
         self.assertEqual(launch[launch.index("--basicAuthMode") + 1], "false")
 
-    def test_sync_uses_sdcpp_and_preserves_unmanaged_state(self) -> None:
+    def test_sync_uses_comfyui_and_preserves_unmanaged_state(self) -> None:
         paths = RuntimePaths.from_environment(str(ROOT / "config.yaml"))
         config = Config.load(paths)
         with tempfile.TemporaryDirectory() as temporary:
@@ -37,9 +37,13 @@ class SillyTavernTests(unittest.TestCase):
             updated = json.loads(settings.read_text(encoding="utf-8"))
             self.assertTrue(updated["unmanaged"]["keep"])
             image = updated["extension_settings"]["sd"]
-            self.assertEqual(image["source"], "sdcpp")
-            self.assertTrue(image["sdcpp_url"].endswith("/upstream/sd"))
-            self.assertIn("masterpiece", image["prompt_prefix"])
+            self.assertEqual(image["source"], "comfy")
+            self.assertEqual(image["comfy_url"], "http://127.0.0.1:8188")
+            graph = json.loads(
+                (settings.parent / "user/workflows/NixLoom_z-image.json").read_text()
+            )
+            self.assertEqual(graph["4"]["inputs"]["text"], "%prompt%")
+            self.assertEqual(image["prompt_prefix"], "")
 
     def test_sync_removes_only_managed_image_settings_when_disabled(self) -> None:
         paths = RuntimePaths.from_environment(str(ROOT / "config.yaml"))

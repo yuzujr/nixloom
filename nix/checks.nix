@@ -122,11 +122,4 @@
             defaultConfig.home.activation.nixloomDshInstall.data;
         pkgs.writeText "nixloom-module-matrix.json" (builtins.toJSON matrix);
 
-    sillytavern-sdcpp-contract = pkgs.runCommand "nixloom-sillytavern-sdcpp-contract" { } ''
-        grep -F "urlJoin(request.body.url, '/v1/models')" \
-          ${pkgs.sillytavern.src}/src/endpoints/stable-diffusion.js >/dev/null
-        grep -F "urlJoin(request.body.url, '/sdapi/v1/txt2img')" \
-          ${pkgs.sillytavern.src}/src/endpoints/stable-diffusion.js >/dev/null
-        touch "$out"
-    '';
 }

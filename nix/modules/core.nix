@@ -7,6 +7,7 @@
 }:
 let
   cfg = config.services.nixloom;
+  tailnet = lib.attrByPath [ "dsh" "tailnet" "enable" ] false cfg;
   stateDir = toString cfg.stateDir;
   dataDir = toString cfg.dataDir;
   cacheDir = toString cfg.cacheDir;
@@ -33,13 +34,6 @@ let
     vulkan = pinned.llama-vulkan;
     rocm = pinned.llama-rocm;
   };
-  imagePackages = {
-    cpu = pinned.image-cpu;
-    cuda =
-      if cfg.cudaCapabilities == [ ] then pinned.image-cuda else capabilityPkgs.stable-diffusion-cpp-cuda;
-    vulkan = pinned.image-vulkan;
-    rocm = pinned.image-rocm;
-  };
   environment = [
     "NIXLOOM_STATE_DIR=${stateDir}"
     "NIXLOOM_DATA_DIR=${dataDir}"
@@ -47,6 +41,7 @@ let
     "NIXLOOM_CONFIG_FILE=${configFile}"
     "NIXLOOM_ACCELERATION=${cfg.acceleration}"
     "NIXLOOM_IMAGE_RUNTIME=${if cfg.images.enable then "enabled" else "disabled"}"
+    "NIXLOOM_DSH_TAILNET=${if tailnet then "1" else "0"}"
     "PATH=${
       lib.makeBinPath (
         [
@@ -55,6 +50,7 @@ let
           cfg.llamaPackage
         ]
         ++ lib.optional cfg.images.enable cfg.imagePackage
+        ++ lib.optional tailnet pkgs.tailscale
       )
     }"
   ]
@@ -85,7 +81,9 @@ in
       description = ''
         CUDA compute capabilities to compile into CUDA backends. An empty list
         uses the pinned nixpkgs defaults; declaring the host capabilities avoids
-        compiling kernels for unrelated GPU architectures.
+        compiling kernels for unrelated GPU architectures in llama.cpp.
+        ComfyUI uses portable prebuilt wheels and its own community dependency
+        pin, independently of this option, to preserve binary cache reuse.
       '';
     };
     llamaPackage = lib.mkOption {
@@ -95,8 +93,12 @@ in
     };
     imagePackage = lib.mkOption {
       type = lib.types.package;
-      default = imagePackages.${cfg.acceleration};
-      description = "stable-diffusion.cpp package; override this for a custom backend or build.";
+      default =
+        if cfg.acceleration != "cuda" then
+          pinned.comfyui
+        else
+          pinned.comfyui-cuda;
+      description = "ComfyUI package with the selected PyTorch backend.";
     };
     swapPackage = lib.mkOption {
       type = lib.types.package;
@@ -128,11 +130,20 @@ in
       default = false;
       description = "Start the runtime target at login.";
     };
-    images.enable = lib.mkEnableOption "the stable-diffusion.cpp image runtime";
+    images.enable = lib.mkEnableOption "the ComfyUI image runtime";
   };
 
   config = lib.mkIf cfg.enable {
     assertions = [
+      {
+        assertion =
+          !cfg.images.enable
+          || lib.elem cfg.acceleration [
+            "cpu"
+            "cuda"
+          ];
+        message = "ComfyUI image runtime currently supports cpu and cuda; set imagePackage to a supported implementation before selecting another backend";
+      }
       {
         assertion = lib.all (path: lib.hasPrefix "/" path) [
           stateDir

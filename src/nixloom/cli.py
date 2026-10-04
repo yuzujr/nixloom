@@ -14,11 +14,12 @@ import urllib.request
 from dataclasses import dataclass
 from pathlib import Path
 
-from . import __version__, dsh, operations, runtime, sillytavern
+from . import __version__, comfy, dsh, operations, runtime, sillytavern
 from .config import Config, ConfigError, RuntimePaths
 
 UNIT_NAMES = {
     "runtime": "nixloom-runtime.service",
+    "comfyui": "nixloom-runtime.service",
     "dsh": "nixloom-dsh.service",
     "sillytavern": "nixloom-sillytavern.service",
     "all": "nixloom.target",
@@ -151,6 +152,14 @@ def _service_specs(config: Config) -> list[ServiceSpec]:
                 "sillytavern",
                 UNIT_NAMES["sillytavern"],
                 f"http://127.0.0.1:{port}/",
+            )
+        )
+    if config.boolean("images.enabled"):
+        specs.append(
+            ServiceSpec(
+                "comfyui",
+                UNIT_NAMES["runtime"],
+                f"http://127.0.0.1:{config.integer('ports.comfyui', 8188, minimum=1)}/",
             )
         )
     return specs
@@ -392,11 +401,6 @@ def command_config(args: argparse.Namespace) -> None:
         return
     config = Config.load(paths)
     llama = runtime.llama_command(config, paths)
-    image = (
-        runtime.image_command(config, paths)
-        if config.boolean("images.enabled")
-        else None
-    )
     swap, document = runtime.swap_command(config, paths)
     if "sillytavern" in config.value:
         sillytavern.command(config)
@@ -404,8 +408,8 @@ def command_config(args: argparse.Namespace) -> None:
         dsh.managed_settings(config)
     if args.verbose:
         print(runtime.render_command(llama))
-        if image:
-            print(runtime.render_command(image))
+        if config.boolean("images.enabled"):
+            print(runtime.render_command(comfy.command(config, paths)))
         print(document.rstrip())
         print(runtime.render_command(swap))
     print("Config and generated launch commands are valid.")
@@ -419,12 +423,9 @@ def command_service(args: argparse.Namespace) -> None:
             print(document.rstrip())
             print(runtime.render_command(command))
             return
-        paths.cache.mkdir(parents=True, exist_ok=True)
-        target = paths.cache / "llama-swap.yaml"
-        temporary = target.with_name(target.name + ".tmp")
-        temporary.write_text(document, encoding="utf-8")
-        os.replace(temporary, target)
-        runtime.execute(command)
+        from . import gateway
+
+        gateway.run(config, paths)
     elif args.service_name == "llama":
         command = runtime.llama_command(config, paths, host=args.host, port=args.port)
         if args.dry_run:
@@ -432,15 +433,8 @@ def command_service(args: argparse.Namespace) -> None:
             return
         runtime.check_assets(command, config, paths)
         runtime.execute(command)
-    elif args.service_name == "image":
-        command = runtime.image_command(
-            config, paths, host=args.host, port=args.port or 7860
-        )
-        if args.dry_run:
-            print(runtime.render_command(command))
-            return
-        runtime.check_assets(command, config, paths)
-        runtime.execute(command)
+    elif args.service_name == "comfyui":
+        comfy.run(config, paths, dry_run=args.dry_run)
     elif args.service_name == "sillytavern":
         sillytavern.run(config, paths, dry_run=args.dry_run)
     elif args.service_name == "dsh":
@@ -661,7 +655,7 @@ def service_parser() -> argparse.ArgumentParser:
     )
     service.add_argument(
         "service_name",
-        choices=("runtime", "llama", "image", "dsh", "sillytavern"),
+        choices=("runtime", "llama", "comfyui", "dsh", "sillytavern"),
         metavar="NAME",
     )
     service.add_argument("--host", default="127.0.0.1", metavar="ADDRESS")

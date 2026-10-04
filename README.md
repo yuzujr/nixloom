@@ -1,9 +1,29 @@
 # NixLoom
 
-NixLoom is a modular local-AI runtime for NixOS. Its Python control plane runs
-one multimodal llama.cpp model and starts stable-diffusion.cpp on demand through
-llama-swap. DSH and SillyTavern are independent Home Manager modules rather
-than built-in assumptions of the core runtime.
+NixLoom integrates local chat, image generation/editing, and video workflows.
+llama.cpp serves the text model through llama-swap; ComfyUI serves creative
+workflows. A single gateway schedules GPU access for every frontend.
+
+```text
+DSH / SillyTavern ── chat ── NixLoom gateway :8080 ── llama-swap :8187 ── llama.cpp
+ComfyUI browser / DSH image tools / SillyTavern
+                 └─ workflows ── gateway :8188 ── ComfyUI :8189
+```
+
+- Image requests unload the text model before ComfyUI executes the workflow.
+  Chat waits for the actual image/video queue to finish, unloads ComfyUI models,
+  then loads the text model. HTTP acceptance does not count as task completion.
+- Z-Image-Turbo generates photographs; FLUX.2 Klein edits a reference image.
+  Both use native NVFP4 kernels on supported Blackwell cards, with quantized
+  Qwen text encoders and tiled VAE decoding.
+- Optional MiniMax H3 provides text-to-video and first-frame-to-video workflows,
+  including audio, in the ComfyUI browser. DSH's image plugin remains for images.
+- Models, inputs, outputs and extensions live under the data directory;
+  browser settings/workflows and the database live under state; temporary files
+  live under cache. No mutable files are installed into the Nix store.
+- The public ComfyUI URL is `http://localhost:8188/`. With Tailnet access enabled,
+  only the owner's Tailscale devices may access it; allow its configured port
+  on `tailscale0`. The private backend port must not be exposed or used directly.
 
 ## Architecture
 
@@ -46,9 +66,12 @@ Backend packages come from NixLoom's own lock rather than the host package set;
 updating an unrelated NixOS flake input therefore does not trigger a CUDA
 rebuild. Updating NixLoom's lock or overriding a package remains an explicit
 runtime upgrade. `cudaCapabilities = [ ];` keeps the portable nixpkgs defaults;
-an explicit list builds llama.cpp and stable-diffusion.cpp only for those GPU
-architectures. Keep this value in the host configuration rather than the
-project-wide flake so different machines can select different targets.
+an explicit list builds llama.cpp for those GPU architectures. Set this in the
+consuming host configuration, not in NixLoom. ComfyUI's CUDA runtime uses the
+community project's independent dependency pin and portable prebuilt wheels,
+including NVIDIA's NVSHMEM binary. Host architecture settings do not rebuild
+this environment. Binary availability takes priority over sharing CUDA libraries
+with llama.cpp.
 
 ## Modules
 
@@ -116,8 +139,11 @@ with the same environment as the service. Extra plugins remain user-managed.
 
 NixLoom synchronizes its local model route, context/output limits and Qwen
 thinking controls, preserving other providers and plugin settings. When images
-are enabled it installs `dsh-image-gen` 0.8.5 and connects its OpenAI-compatible
-provider to the existing SD endpoint; no second image runtime is installed.
+are enabled it installs `dsh-image-gen` 0.8.5 and configures its native ComfyUI
+provider with named `z-image` and `klein-edit` workflows. Select the edit workflow
+and supply an image for reference editing; the same graphs are saved as browser
+workflows in ComfyUI. The plugin currently supports one reference image. Browser
+workflows can be expanded to accept multiple references.
 Image editing still depends on the capabilities of the selected SD backend.
 
 The launcher exposes Node internals through Node's own loader because the upstream
@@ -164,7 +190,8 @@ separate XDG directories:
 The important YAML sections are:
 
 - `llm`: model, vision projector, context, reasoning and sampling settings
-- `images`: stable-diffusion.cpp precision and image profiles
+- `images`: ComfyUI image profiles, generation/edit defaults, and VRAM reserve
+- `video`: optional MiniMax H3 weights, resolution, frame count and steps
 - `dsh`: pinned npm version and optional workspace
 - `sillytavern`: managed preset
 - `credentials`: Tavily search API key and optional Civitai download token
@@ -202,8 +229,8 @@ the plugin profile or Nix store. DSH's original `web_search` tool and HTTP fetch
 provider stay in use.
 
 `nixloom test` is the single useful live regression suite. It verifies exact
-chat/reasoning/vision results, decodes a generated image, and swaps back to the
-LLM. Use `--skip-image` to omit image generation.
+chat/reasoning/vision results, generates an image, edits that image with Klein,
+and swaps back to the LLM. Use `--skip-image` to omit image tests.
 
 `nixloom backup` temporarily stops the stack and archives only user-owned
 configuration plus DSH and SillyTavern state. Models, caches and DSH's
@@ -222,3 +249,23 @@ nix flake check
 ## License
 
 MIT
+
+
+## ComfyUI workflows
+
+Open the saved `NixLoom_z-image` or `NixLoom_klein-edit` workflow from the browser
+workflow sidebar. Edit the prompt and resolution, upload a reference for Klein,
+and queue the workflow. Managed workflows are rebuilt from the same API graphs
+used by DSH, using the running backend's node schemas. Save custom variations
+under another name to keep them across restarts.
+
+`images.reserve_vram` reserves additional headroom for desktop growth and transient CUDA use;
+it does not cap compute utilization. ComfyUI dynamically offloads model weights
+as necessary. CUDA uses PyTorch attention, asynchronous offloading, and no output
+cache so prior graphs do not accumulate VRAM. The default is 0.5 GiB beyond current desktop allocations; measure
+actual desktop use before reducing it. The 8 GB deployment uses Klein 4B NVFP4;
+a larger model can be configured by changing its weights and matching encoder.
+
+H3 uses `h3-text-to-video` and `h3-image-to-video` browser workflows. Its default
+124 frames are approximately five seconds at 24 fps. Large video models also
+consume host RAM; low VRAM offloading can increase latency substantially.

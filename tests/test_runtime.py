@@ -1,8 +1,8 @@
 import unittest
 from pathlib import Path
 
-from nixloom.config import Config, ConfigError, RuntimePaths
-from nixloom.runtime import image_command, llama_command, swap_document
+from nixloom.config import Config, RuntimePaths
+from nixloom.runtime import llama_command, swap_document
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -31,28 +31,10 @@ class RuntimeTests(unittest.TestCase):
         finally:
             self.config.value["llm"]["n_cpu_moe"] = "auto"
 
-    def test_image_runtime_is_stable_diffusion_cpp(self) -> None:
-        command = image_command(self.config, self.paths, port="${PORT}")
-        self.assertEqual(command[0], "sd-server")
-        self.assertIn("--lora-model-dir", command)
-        self.assertIn("--prompt", command)
-        self.assertIn("--vae-tiling", command)
-
-    def test_swap_exposes_one_chat_model_and_hidden_image_runtime(self) -> None:
+    def test_swap_manages_only_the_chat_model(self) -> None:
         document = swap_document(self.config, self.paths)
-        self.assertEqual(set(document["models"]), {"qwen", "sd"})
-        self.assertTrue(document["models"]["sd"]["unlisted"])
-        self.assertEqual(document["models"]["sd"]["checkEndpoint"], "/v1/models")
-
-    def test_disabled_image_runtime_is_absent(self) -> None:
-        self.config.value["images"]["enabled"] = False
-        try:
-            document = swap_document(self.config, self.paths)
-            self.assertEqual(set(document["models"]), {"qwen"})
-            with self.assertRaisesRegex(ConfigError, "disabled"):
-                image_command(self.config, self.paths)
-        finally:
-            self.config.value["images"]["enabled"] = True
+        self.assertEqual(set(document["models"]), {"qwen"})
+        self.assertEqual(document["models"]["qwen"]["checkEndpoint"], "/health")
 
 
 if __name__ == "__main__":

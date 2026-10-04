@@ -52,3 +52,20 @@ test('workspace provider uses the registry first-use policy', async () => {
         else process.env.NIXLOOM_DSH_WORKSPACE = previous;
     }
 });
+
+test('managed image guidance selects separate generate and edit workflows', async () => {
+    const saved = { ...process.env };
+    try {
+        process.env.NIXLOOM_DSH_WORKSPACE = '/workspace';
+        process.env.NIXLOOM_DSH_IMAGE_WORKFLOWS = JSON.stringify({ generate: 'z-image', edit: 'klein-edit' });
+        let section;
+        await apply({
+            on() {},
+            workspaceRegistry: { async initializeDefault(resolve) { assert.equal(await resolve(), '/workspace'); } },
+            systemPrompt: { getSectionOrder() { return 30; }, section(value) { section = value; } },
+        });
+        assert.match(section.text, /generate_image.*workflow="z-image"/);
+        assert.match(section.text, /edit_image.*workflow="klein-edit"/);
+        assert.match(section.text, /exactly one reference image/);
+    } finally { process.env = saved; }
+});
