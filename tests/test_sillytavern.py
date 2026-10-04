@@ -4,12 +4,20 @@ import unittest
 from pathlib import Path
 
 from nixloom.config import Config, RuntimePaths
-from nixloom.sillytavern import sync_settings
+from nixloom.sillytavern import command, sync_settings
 
 ROOT = Path(__file__).resolve().parents[1]
 
 
 class SillyTavernTests(unittest.TestCase):
+    def test_loopback_access_overrides_stale_auth_settings(self) -> None:
+        paths = RuntimePaths.from_environment(str(ROOT / "config.yaml"))
+        config = Config.load(paths)
+        config.value["sillytavern"]["auth_password"] = "old-password"
+        launch = command(config)
+        self.assertEqual(launch[launch.index("--listen") + 1], "false")
+        self.assertEqual(launch[launch.index("--basicAuthMode") + 1], "false")
+
     def test_sync_uses_sdcpp_and_preserves_unmanaged_state(self) -> None:
         paths = RuntimePaths.from_environment(str(ROOT / "config.yaml"))
         config = Config.load(paths)

@@ -207,7 +207,7 @@ def _configured_model_ready(config: Config) -> bool:
 
 
 def _wait_for_endpoint(spec: ServiceSpec, *, timeout: int) -> None:
-    print(f"Waiting for {spec.name}", end="", flush=True)
+    print(f"Starting {SERVICE_LABELS[spec.name]}...", end="", flush=True)
     started = time.monotonic()
     while time.monotonic() - started < timeout:
         report = _service_report(spec, timeout=1)
@@ -220,7 +220,6 @@ def _wait_for_endpoint(spec: ServiceSpec, *, timeout: int) -> None:
             raise ConfigError(
                 f"{spec.name} service failed; inspect `nixloom logs {spec.name}`"
             )
-        print(".", end="", flush=True)
         time.sleep(1)
     print(" timed out.", flush=True)
     raise ConfigError(
@@ -247,10 +246,39 @@ def _warm_model(config: Config) -> None:
     print(f"Model {model} ready ({time.monotonic() - started:.1f}s).", flush=True)
 
 
+SERVICE_LABELS = {
+    "runtime": "Model engine",
+    "dsh": "Chat (DSH)",
+    "sillytavern": "Roleplay (SillyTavern)",
+}
+
+
 def _print_ready_endpoints(reports: list[ServiceReport]) -> None:
     for report in reports:
-        endpoint = report.spec.url.removesuffix("/health").removesuffix("/healthz")
-        print(f"  {report.spec.name:<12} {endpoint}")
+        if report.state != "ready" or report.spec.name == "runtime":
+            continue
+        action = "nixloom open" if report.spec.name == "dsh" else report.spec.url
+        print(f"  {SERVICE_LABELS[report.spec.name]}: {action}")
+
+
+def command_open(args: argparse.Namespace) -> None:
+    _, config = _context(args.config)
+    service = args.frontend
+    if not _unit_installed(service) or _unit_state(UNIT_NAMES[service])[0] != "active":
+        raise ConfigError(
+            f"{SERVICE_LABELS[service]} is stopped. Run `nixloom start` first."
+        )
+    url = (
+        dsh.web_url(config)
+        if service == "dsh"
+        else f"http://127.0.0.1:{config.integer('ports.sillytavern', minimum=1)}/"
+    )
+    opener = shutil.which("xdg-open")
+    if not opener:
+        print(f"Open this link in your browser: {url}")
+        return
+    subprocess.run([opener, url], check=True)
+    print(f"Opened {SERVICE_LABELS[service]} in your browser.")
 
 
 def command_start(args: argparse.Namespace) -> int:
@@ -278,7 +306,7 @@ def command_start(args: argparse.Namespace) -> int:
     if any(spec.name == "dsh" for spec in specs):
         paths = RuntimePaths.from_environment(args.config)
         dsh.require_installed(config, paths)
-    print(f"{action} NixLoom ({', '.join(spec.name for spec in specs)})...", flush=True)
+    print(f"{action} NixLoom...", flush=True)
     operations.systemctl(verb, "nixloom.target")
     # Starting an already-active target does not retry a failed Wanted unit.
     # Explicitly start the selected services so `nixloom start` also repairs a
@@ -292,7 +320,7 @@ def command_start(args: argparse.Namespace) -> int:
     unhealthy = [report.spec.name for report in reports if report.state != "ready"]
     if unhealthy:
         raise ConfigError("services are not ready: " + ", ".join(unhealthy))
-    print("NixLoom is ready.")
+    print(f"Ready to chat — {config.string('llm.id')}.")
     _print_ready_endpoints(reports)
     return 0
 
@@ -301,25 +329,44 @@ def command_status(args: argparse.Namespace) -> int:
     _, config = _context(args.config)
     reports = _collect_reports(config)
     ready = sum(report.state == "ready" for report in reports)
-    if ready == len(reports):
-        summary = f"ready ({ready}/{len(reports)} services healthy)"
-    elif all(report.state == "stopped" for report in reports):
-        summary = "stopped"
-    else:
-        summary = f"degraded ({ready}/{len(reports)} services healthy)"
-    print(f"NixLoom: {summary}\n")
-    print(f"{'SERVICE':<13} {'STATE':<11} {'SYSTEMD':<18} ENDPOINT")
-    for report in reports:
-        systemd = f"{report.active}/{report.sub}"
-        print(
-            f"{report.spec.name:<13} {report.state:<11} {systemd:<18} {report.spec.url}"
-        )
+    stopped = all(report.state == "stopped" for report in reports)
     models = _running_models(config) if reports and reports[0].state == "ready" else []
-    print(f"\nModel: {', '.join(models) if models else 'none loaded'}")
-    if summary == "stopped":
-        print("Start with: nixloom start")
+    loaded = [
+        model.removesuffix(" (ready)") for model in models if model.endswith(" (ready)")
+    ]
+    if stopped:
+        print("NixLoom is stopped. Start with: nixloom start")
     elif ready != len(reports):
-        print("Inspect with: nixloom logs all")
+        print("NixLoom needs attention:")
+    elif loaded:
+        print(f"Ready to chat — {', '.join(loaded)}.")
+    else:
+        print("Services are running. The model will load when you send a message.")
+    _print_ready_endpoints(reports)
+    for report in reports:
+        if stopped:
+            break
+        if report.state == "ready":
+            continue
+        action = (
+            "nixloom start"
+            if report.state == "stopped"
+            else f"nixloom logs {report.spec.name}"
+        )
+        label = {
+            "stopped": "stopped",
+            "starting": "starting",
+            "failed": "failed",
+            "unhealthy": "not responding",
+        }[report.state]
+        print(f"  {SERVICE_LABELS[report.spec.name]}: {label} → {action}")
+    if getattr(args, "verbose", False):
+        print(f"\n{'SERVICE':<13} {'SYSTEMD':<18} HEALTH CHECK")
+        for report in reports:
+            print(
+                f"{report.spec.name:<13} {report.active + '/' + report.sub:<18} {report.health}"
+            )
+        print(f"Model: {', '.join(models) if models else 'none loaded'}")
     return 0 if ready == len(reports) else 1
 
 
@@ -516,12 +563,24 @@ Run 'nixloom COMMAND --help' for details about a command.""",
         description="Stop every NixLoom service.",
         usage="%(prog)s",
     ).set_defaults(handler=command_stop)
-    commands.add_parser(
+    status = commands.add_parser(
         "status",
-        help="Show combined systemd, endpoint, and model state",
-        description="Show combined systemd, endpoint, and model state.",
-        usage="%(prog)s",
-    ).set_defaults(handler=command_status)
+        help="Show readiness and how to open chat",
+        usage="%(prog)s [OPTION]...",
+    )
+    status.add_argument(
+        "--verbose", action="store_true", help="include service diagnostics"
+    )
+    status.set_defaults(handler=command_status)
+    opening = commands.add_parser(
+        "open",
+        help="Open chat in your browser without copying a token",
+        usage="%(prog)s [FRONTEND]",
+    )
+    opening.add_argument(
+        "frontend", choices=("dsh", "sillytavern"), nargs="?", default="dsh"
+    )
+    opening.set_defaults(handler=command_open)
     logs = commands.add_parser(
         "logs",
         help="Read one service or the combined journal",

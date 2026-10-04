@@ -96,6 +96,32 @@ class DshTests(unittest.TestCase):
         self.assertEqual(target.read_text(), first)
         self.assertEqual(target.stat().st_mode & 0o777, 0o600)
 
+    def test_web_entry_uses_only_current_service_invocation(self) -> None:
+        results = [
+            subprocess.CompletedProcess([], 0, stdout="current-invocation\n"),
+            subprocess.CompletedProcess(
+                [], 0, stdout="dsh web: http://127.0.0.1:3080/?token=current-token\n"
+            ),
+        ]
+        with patch("nixloom.dsh.subprocess.run", side_effect=results) as run:
+            self.assertEqual(
+                dsh.web_url(self.config), "http://127.0.0.1:3080/?token=current-token"
+            )
+        self.assertIn(
+            "_SYSTEMD_INVOCATION_ID=current-invocation", run.call_args.args[0]
+        )
+
+    def test_missing_current_entry_does_not_reuse_a_stale_url(self) -> None:
+        results = [
+            subprocess.CompletedProcess([], 0, stdout="current-invocation\n"),
+            subprocess.CompletedProcess([], 0, stdout=""),
+        ]
+        with (
+            patch("nixloom.dsh.subprocess.run", side_effect=results),
+            self.assertRaisesRegex(ConfigError, "still starting"),
+        ):
+            dsh.web_url(self.config)
+
     def test_prepare_connects_image_plugin_and_preserves_user_bundles(self) -> None:
         self.fake_install()
         with patch("nixloom.dsh.subprocess.run") as run:

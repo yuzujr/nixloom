@@ -69,6 +69,44 @@ def require_installed(config: Config, paths: RuntimePaths) -> None:
         )
 
 
+def web_url(config: Config) -> str:
+    unit = "nixloom-dsh.service"
+    invocation = subprocess.run(
+        ["systemctl", "--user", "show", unit, "-p", "InvocationID", "--value"],
+        check=True,
+        capture_output=True,
+        text=True,
+    ).stdout.strip()
+    if not invocation:
+        raise ConfigError("Chat is stopped. Run `nixloom start`, then `nixloom open`.")
+    journal = subprocess.run(
+        [
+            "journalctl",
+            "--user",
+            "-u",
+            unit,
+            f"_SYSTEMD_INVOCATION_ID={invocation}",
+            "-n",
+            "100",
+            "--output",
+            "cat",
+            "--no-pager",
+        ],
+        check=True,
+        capture_output=True,
+        text=True,
+    ).stdout
+    port = config.integer("ports.dsh", 3080, minimum=1)
+    matches = re.findall(
+        rf"dsh web: (http://127\.0\.0\.1:{port}/\?token=[A-Za-z0-9_-]+)", journal
+    )
+    if not matches:
+        raise ConfigError(
+            "Chat is still starting. Try `nixloom open` again shortly; if it keeps failing, run `nixloom logs dsh`."
+        )
+    return matches[-1]
+
+
 def install(config: Config, paths: RuntimePaths, *, dry_run: bool = False) -> None:
     target = app_directory(config, paths)
     packages = [f"@deepseek-ai/dsh@{config.string('dsh.version', DEFAULT_VERSION)}"]

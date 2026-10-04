@@ -62,7 +62,7 @@ dsh:
   # Empty uses the workspace inside NixLoom's data directory.
   workspace: ""
 sillytavern:
-  bind: 0.0.0.0
+  bind: 127.0.0.1
   auth_user: nixloom
   auth_password: ""
   preset: Qwen 3.6 35B RP

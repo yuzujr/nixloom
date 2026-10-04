@@ -90,10 +90,13 @@ a runtime without DSH.
 
 ```bash
 nixloom start
+nixloom open
 nixloom logs dsh
 ```
 
-The journal prints the authenticated Web URL. The default port is 3080.
+`nixloom open` opens the current authenticated Web URL in your browser, without
+copying a token from the journal. DSH remembers browser login for 30 days, across
+service restarts. The default port is 3080.
 Activation downloads packages only when the configured version or image plugin
 is missing; subsequent activations reuse them. Change `dsh.version` in YAML
 and activate Home Manager again to upgrade. Installation needs network access
@@ -161,6 +164,11 @@ and model-loading time instead of staying silent. `status` combines systemd,
 HTTP health, and the currently loaded model in one table; it exits nonzero when
 the stack is stopped or degraded. `logs all` merges the journals of every
 installed NixLoom service.
+
+`start` and `status` show chat readiness and the next action. Use `nixloom open`
+for DSH or `nixloom open sillytavern` for roleplay. `status --verbose` adds service
+diagnostics. SillyTavern defaults to local-only access without login; setting a
+network bind and password enables password authentication for remote access.
 
 `nixloom test` is the single useful live regression suite. It verifies exact
 chat/reasoning/vision results, decodes a generated image, and swaps back to the

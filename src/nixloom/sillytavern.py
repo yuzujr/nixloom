@@ -208,8 +208,14 @@ def command(config: Config) -> list[str]:
         "--whitelist",
         "false",
     ]
-    if config.string("sillytavern.auth_password", ""):
-        result.extend(["--basicAuthMode", "true"])
+    result.extend(
+        [
+            "--basicAuthMode",
+            str(
+                bool(config.string("sillytavern.auth_password", "")) and listen
+            ).lower(),
+        ]
+    )
     return result
 
 
