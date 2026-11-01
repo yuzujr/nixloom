@@ -41,8 +41,6 @@ in
           "NIXLOOM_CONFIG_FILE=${toString cfg.configFile}"
           "PATH=${lib.makeBinPath [ module.package ]}"
         ];
-        Restart = "on-failure";
-        RestartSec = "5s";
         TimeoutStartSec = "infinity";
         TimeoutStopSec = "30s";
         KillMode = "mixed";

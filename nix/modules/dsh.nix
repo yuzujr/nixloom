@@ -62,8 +62,6 @@ in
                 ExecStart = "${cfg.package}/bin/nixloom __service dsh";
                 WorkingDirectory = stateDir;
                 Environment = environment;
-                Restart = "on-failure";
-                RestartSec = "5s";
                 TimeoutStartSec = "infinity";
                 TimeoutStopSec = "30s";
                 KillMode = "mixed";
