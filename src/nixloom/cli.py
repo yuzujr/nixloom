@@ -257,15 +257,19 @@ def _warm_model(config: Config) -> None:
     print(f" → loaded ({time.monotonic() - started:.1f}s)", flush=True)
 
 
+def _display_url(report: ServiceReport, config: Config) -> str:
+    if report.spec.name == "dsh":
+        url = dsh.tailnet_url(config)
+        if url:
+            return url
+    return report.spec.url.removesuffix("/health")
+
+
 def _print_ready_endpoints(reports: list[ServiceReport], config: Config) -> None:
+    width = max((len(report.spec.name) for report in reports), default=0)
     for report in reports:
         if report.state == "ready":
-            endpoint = report.spec.url.removesuffix("/health")
-            print(f"  {report.spec.name:<12} {endpoint}")
-            if report.spec.name == "dsh":
-                url = dsh.tailnet_url(config)
-                if url:
-                    print(f"  {'dsh (tailnet)':<12} {url}")
+            print(f"  {report.spec.name:<{width}}  {_display_url(report, config)}")
 
 
 def command_start(args: argparse.Namespace) -> int:
@@ -329,18 +333,26 @@ def command_status(args: argparse.Namespace) -> int:
     model = ", ".join(models) if models else "unloaded"
     state = "ready" if ready else "stopped" if stopped else "degraded"
     print(f"NixLoom {state} · model: {model}\n")
-    print(f"{'SERVICE':<13} {'STATE':<11} URL")
+    name_width = max([len("SERVICE"), *(len(report.spec.name) for report in reports)])
+    state_width = max([len("STATE"), *(len(report.state) for report in reports)])
+    print(f"{'SERVICE':<{name_width}}  {'STATE':<{state_width}}  URL")
     for report in reports:
-        url = report.spec.url.removesuffix("/health")
-        print(f"{report.spec.name:<13} {report.state:<11} {url}")
-    url = dsh.tailnet_url(config)
-    if url:
-        print(f"\nDSH (tailnet): {url}")
+        print(
+            f"{report.spec.name:<{name_width}}  "
+            f"{report.state:<{state_width}}  {_display_url(report, config)}"
+        )
     if getattr(args, "verbose", False):
-        print(f"\n{'SERVICE':<13} {'SYSTEMD':<18} HEALTH")
+        systemd_width = max(
+            [
+                len("SYSTEMD"),
+                *(len(report.active + "/" + report.sub) for report in reports),
+            ]
+        )
+        print(f"\n{'SERVICE':<{name_width}}  {'SYSTEMD':<{systemd_width}}  HEALTH")
         for report in reports:
             print(
-                f"{report.spec.name:<13} {report.active + '/' + report.sub:<18} {report.health}"
+                f"{report.spec.name:<{name_width}}  "
+                f"{report.active + '/' + report.sub:<{systemd_width}}  {report.health}"
             )
     if not ready:
         failures = [
