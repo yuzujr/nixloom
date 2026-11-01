@@ -47,11 +47,6 @@ in
                 NIXLOOM_DSH_BASH = "${pkgs.bashInteractive}/bin/bash";
                 NIXLOOM_DSH_TAILNET = if cfg.dsh.tailnet.enable then "1" else "0";
             };
-            activation.nixloomDshInstall = lib.hm.dag.entryAfter [ "nixloomDirectories" ] ''
-                run env ${
-                    lib.concatMapStringsSep " " lib.escapeShellArg environment
-                } ${cfg.package}/bin/nixloom __service dsh --prepare-only
-            '';
         };
         systemd.user.targets.nixloom.Unit.Wants = lib.mkAfter [ "nixloom-dsh.service" ];
         systemd.user.services.nixloom-dsh = {
@@ -60,9 +55,10 @@ in
                 Wants = [ "nixloom-runtime.service" ];
                 After = [ "nixloom-runtime.service" ];
                 PartOf = [ "nixloom.target" ];
-                X-SwitchMethod = "restart";
+                X-SwitchMethod = "keep-old";
             };
             Service = {
+                ExecStartPre = "${cfg.package}/bin/nixloom __service dsh --prepare-only";
                 ExecStart = "${cfg.package}/bin/nixloom __service dsh";
                 WorkingDirectory = stateDir;
                 Environment = environment;
