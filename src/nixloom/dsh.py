@@ -498,13 +498,7 @@ def tailnet_enabled() -> bool:
 
 
 def bind_host() -> str:
-    if not tailnet_enabled():
-        return "127.0.0.1"
-    addresses = tailnet_identity()["addresses"]
-    host = next((address for address in addresses if ":" not in address), "")
-    if not host:
-        raise ConfigError("Tailscale has no IPv4 address for the DSH web server")
-    return host
+    return "0.0.0.0" if tailnet_enabled() else "127.0.0.1"
 
 
 def tailnet_identity() -> dict[str, Any]:
@@ -560,6 +554,8 @@ def run(config: Config, paths: RuntimePaths, *, dry_run: bool = False) -> None:
         paths,
         "web",
         "--no-open",
+        "--host",
+        bind_host(),
         "--port",
         str(config.integer("ports.dsh", 3080, minimum=1)),
     )
@@ -579,7 +575,6 @@ def run(config: Config, paths: RuntimePaths, *, dry_run: bool = False) -> None:
     if tailnet_enabled():
         identity = tailnet_identity()
         port = config.integer("ports.dsh", 3080)
-        local_hosts = [f"127.0.0.1:{port}", f"localhost:{port}"]
         hosts = [
             f"{identity['hostname']}:{port}",
             f"{identity['hostname'].split('.', 1)[0]}:{port}",
@@ -588,15 +583,11 @@ def run(config: Config, paths: RuntimePaths, *, dry_run: bool = False) -> None:
                 for address in identity["addresses"]
                 if ":" not in address
             ],
-            *local_hosts,
+            f"127.0.0.1:{port}",
+            f"localhost:{port}",
         ]
         values["NIXLOOM_DSH_TAILNET_HOSTS"] = json.dumps(hosts)
-        values["NIXLOOM_DSH_TAILNET_LOCAL_ADDRESSES"] = json.dumps(
-            identity["addresses"]
-        )
         values["NIXLOOM_DSH_TAILNET_PEERS"] = json.dumps(identity["peers"])
-        values["NIXLOOM_DSH_LOCAL_PROXY_TARGET"] = bind_host()
-        values["NIXLOOM_DSH_LOCAL_PROXY_PORT"] = str(port)
         args.extend(["--trusted-host", *hosts])
     os.execvpe(args[0], args, values)
 
