@@ -142,7 +142,7 @@ def _service_specs(config: Config) -> list[ServiceSpec]:
             ServiceSpec(
                 "dsh",
                 UNIT_NAMES["dsh"],
-                f"http://127.0.0.1:{port}/",
+                f"http://{dsh.bind_host()}:{port}/",
             )
         )
     if _unit_installed("sillytavern"):
