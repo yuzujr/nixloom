@@ -149,7 +149,11 @@ def _allow_install_scripts(target: Path) -> None:
     manifest.write_text(json.dumps(package, indent=2) + "\n", encoding="utf-8")
 
 
-def managed_plugins(config: Config) -> list[ManagedPlugin]:
+def managed_plugins(
+    config: Config, paths: RuntimePaths | None = None
+) -> list[ManagedPlugin]:
+    if paths is None:
+        paths = RuntimePaths.from_environment()
     return [
         ManagedPlugin(
             package="dsh-plugin-mobile-gateway",
@@ -160,6 +164,7 @@ def managed_plugins(config: Config) -> list[ManagedPlugin]:
                 "requireAuth": True,
                 "adminLoopbackOnly": not tailnet_enabled(),
                 "lanEnabled": False,
+                "publicUrlFile": str(paths.state / ".dsh/mobile-gateway-public-url"),
             },
         ),
         ManagedPlugin(
@@ -182,7 +187,7 @@ def managed_plugins(config: Config) -> list[ManagedPlugin]:
 def install(config: Config, paths: RuntimePaths, *, dry_run: bool = False) -> None:
     target = app_directory(config, paths)
     dsh_package = f"@deepseek-ai/dsh@{config.string('dsh.version', DEFAULT_VERSION)}"
-    plugins = managed_plugins(config)
+    plugins = managed_plugins(config, paths)
     packages = [dsh_package] + [
         f"{plugin.package}@{plugin.version}"
         for plugin in plugins
@@ -249,7 +254,9 @@ def install(config: Config, paths: RuntimePaths, *, dry_run: bool = False) -> No
     print(f"DSH installed: {target}")
 
 
-def managed_settings(config: Config) -> list[dict[str, Any]]:
+def managed_settings(
+    config: Config, paths: RuntimePaths | None = None
+) -> list[dict[str, Any]]:
     port = config.integer("ports.llama", minimum=1)
     provider = {
         "displayName": "NixLoom",
@@ -294,7 +301,7 @@ def managed_settings(config: Config) -> list[dict[str, Any]]:
     ]
     settings.extend(
         {"id": plugin.settings_id, "config": plugin.settings}
-        for plugin in managed_plugins(config)
+        for plugin in managed_plugins(config, paths)
         if plugin.enabled and plugin.settings_id and plugin.settings is not None
     )
     return settings
@@ -316,13 +323,13 @@ def _image_settings(config: Config) -> dict[str, Any]:
     }
 
 
-def sync_settings(config: Config, target: Path) -> None:
+def sync_settings(config: Config, paths: RuntimePaths, target: Path) -> None:
     rows = yaml.safe_load(target.read_text(encoding="utf-8")) if target.exists() else []
     if rows is None:
         rows = []
     if not isinstance(rows, list) or any(not isinstance(row, dict) for row in rows):
         raise ConfigError(f"{target} must contain a Cordis patch list")
-    for managed in managed_settings(config):
+    for managed in managed_settings(config, paths):
         row = next((row for row in rows if row.get("id") == managed["id"]), None)
         if row is None:
             rows.append(managed)
@@ -423,7 +430,7 @@ def prepare(config: Config, paths: RuntimePaths) -> None:
     manifest_path = profile / "package.json"
     manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
     bundles = manifest["dsh"]["profile"]["bundles"]
-    plugins = managed_plugins(config)
+    plugins = managed_plugins(config, paths)
     for plugin in plugins:
         _sync_profile_bundle(
             profile,
@@ -434,7 +441,7 @@ def prepare(config: Config, paths: RuntimePaths) -> None:
         )
     _write_json(manifest_path, manifest)
     patch = profile / "cordis.patch.yml"
-    sync_settings(config, patch)
+    sync_settings(config, paths, patch)
     rows = yaml.safe_load(patch.read_text(encoding="utf-8"))
     managed_ids = {"nixloom-tavily", "nixloom-workspace"}
     rows = [row for row in rows if row.get("id") not in managed_ids]
@@ -471,12 +478,12 @@ def _profile_fingerprint(config: Config, paths: RuntimePaths) -> str:
     managed = {
         "version": config.string("dsh.version", DEFAULT_VERSION),
         "workspace": str(workspace(config, paths)),
-        "settings": managed_settings(config),
+        "settings": managed_settings(config, paths),
         "images": _image_settings(config) if config.boolean("images.enabled") else None,
         "video": _video_settings(config),
         "managed_plugin_versions": [
             (plugin.package, plugin.version, plugin.enabled)
-            for plugin in managed_plugins(config)
+            for plugin in managed_plugins(config, paths)
         ],
         "plugins": str(Path(__file__).parent),
     }
@@ -548,6 +555,18 @@ def _write_json(target: Path, value: Any) -> None:
         Path(temporary).unlink(missing_ok=True)
 
 
+def ensure_tailscale_serve(port: int) -> None:
+    try:
+        subprocess.run(
+            ["tailscale", "serve", "--bg", "--https", "443", str(port)],
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+    except Exception as error:
+        print(f"Warning: failed to configure tailscale serve: {error}", file=sys.stderr)
+
+
 def run(config: Config, paths: RuntimePaths, *, dry_run: bool = False) -> None:
     args = command(
         config,
@@ -572,23 +591,50 @@ def run(config: Config, paths: RuntimePaths, *, dry_run: bool = False) -> None:
     os.chdir(workspace(config, paths))
     values = environment(config, paths)
     values["NIXLOOM_DSH_LOCAL_ACCESS"] = "1"
+    public_url_file = paths.state / ".dsh/mobile-gateway-public-url"
     if tailnet_enabled():
         identity = tailnet_identity()
         port = config.integer("ports.dsh", 3080)
+        ensure_tailscale_serve(port)
+        public_url_file.parent.mkdir(parents=True, exist_ok=True)
+        public_url_file.write_text(
+            f"wss://{identity['hostname']}/ws/mobile\n", encoding="utf-8"
+        )
+        short_host = identity["hostname"].split(".", 1)[0]
         hosts = [
+            identity["hostname"],
+            f"{identity['hostname']}:443",
             f"{identity['hostname']}:{port}",
-            f"{identity['hostname'].split('.', 1)[0]}:{port}",
+            short_host,
+            f"{short_host}:443",
+            f"{short_host}:{port}",
+            *[
+                address
+                for address in identity["addresses"]
+                if ":" not in address
+            ],
+            *[
+                f"{address}:443"
+                for address in identity["addresses"]
+                if ":" not in address
+            ],
             *[
                 f"{address}:{port}"
                 for address in identity["addresses"]
                 if ":" not in address
             ],
+            "127.0.0.1",
+            "127.0.0.1:443",
             f"127.0.0.1:{port}",
+            "localhost",
+            "localhost:443",
             f"localhost:{port}",
         ]
         values["NIXLOOM_DSH_TAILNET_HOSTS"] = json.dumps(hosts)
         values["NIXLOOM_DSH_TAILNET_PEERS"] = json.dumps(identity["peers"])
         args.extend(["--trusted-host", *hosts])
+    else:
+        public_url_file.unlink(missing_ok=True)
     os.execvpe(args[0], args, values)
 
 
