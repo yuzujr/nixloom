@@ -162,7 +162,7 @@ def managed_plugins(
             settings={
                 "gatewayMode": "persistent",
                 "requireAuth": True,
-                "adminLoopbackOnly": not tailnet_enabled(),
+                "adminLoopbackOnly": True,
                 "lanEnabled": False,
                 "publicUrlFile": str(paths.state / ".dsh/mobile-gateway-public-url"),
             },
