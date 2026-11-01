@@ -1,11 +1,12 @@
 --- a/node_modules/@deepseek-ai/dsh-client-connection/lib/index.js
 +++ b/node_modules/@deepseek-ai/dsh-client-connection/lib/index.js
-@@ -1,3 +1,4 @@
-+import { allowsManagedAccess } from "./nixloom-access.mjs";
+@@ -1,4 +1,5 @@
  import z from "@deepseek-ai/schemastery";
++import { allowsManagedAccess } from "./nixloom-access.mjs";
  import { Readable } from "node:stream";
  import { createHash, createHmac, randomBytes, randomUUID, timingSafeEqual } from "node:crypto";
-@@ -372,6 +373,7 @@
+ import { credentialKey } from "@deepseek-ai/dsh-credentials";
+@@ -438,6 +439,7 @@
  	* @returns the same URL carrying the process token as its sole authentication input.
  	*/
  	authenticatedUrl(baseUrl) {
@@ -13,11 +14,11 @@
  		const url = new URL(baseUrl);
  		url.searchParams.set(TOKEN_QUERY, this.launchToken);
  		return url.href;
-@@ -432,6 +434,7 @@
+@@ -544,6 +546,7 @@
+ 	* @returns true only for an unexpired cookie signed by this activation's loaded secret.
  	*/
- 	isAuthenticated(request) {
- 		const authority = requestAuthority(request.headers);
-+		if (allowsManagedAccess(request, authority)) return true;
- 		const rawCookie = header(request.headers, "cookie");
- 		if (authority === void 0 || rawCookie === void 0) return false;
- 		const value = cookieValue(rawCookie, cookieName(authority));
+ 	isAuthenticated(request, secure = false) {
++		if (allowsManagedAccess(request, request.headers?.host)) return true;
+ 		return this.authenticate(request, secure)?.version === COOKIE_PAYLOAD_VERSION;
+ 	}
+ 	/**

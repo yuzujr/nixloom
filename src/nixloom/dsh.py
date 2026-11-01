@@ -129,6 +129,8 @@ def install(config: Config, paths: RuntimePaths, *, dry_run: bool = False) -> No
                         "--prefix",
                         str(app),
                         "--save-exact",
+                        "--allow-scripts",
+                        "@deepseek-ai/dsh-subprocess-local,@google/genai,koffi,node-pty,protobufjs",
                         "--no-audit",
                         "--no-fund",
                         *packages,
