@@ -131,11 +131,10 @@ def managed_plugins(config: Config) -> list[ManagedPlugin]:
             version="0.11.1",
             settings_id="mobile-gateway",
             settings={
+                "gatewayMode": "persistent",
                 "requireAuth": True,
                 "adminLoopbackOnly": True,
-                "lanEnabled": True,
-                "lanHost": "127.0.0.1",
-                "lanPort": 3081,
+                "lanEnabled": False,
             },
         ),
         ManagedPlugin(

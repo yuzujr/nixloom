@@ -149,12 +149,12 @@ ComfyUI browser. Image editing still depends on the capabilities of the selected
 SD backend.
 
 NixLoom also installs `dsh-plugin-mobile-gateway` 0.11.1 for the Whaleness
-mobile client. Device authentication stays required. Its mobile WebSocket
-listener binds only to `127.0.0.1:3081`; the gateway stays disabled until enabled
-from DSH's Mobile Devices panel. To connect over Tailscale, expose that local
-listener with `tailscale serve --bg 3081`, then pair using the generated
-`wss://<device>.<tailnet>.ts.net/ws/mobile` address. Do not expose port 3081
-directly to the network.
+mobile client. The gateway starts in persistent mode with device authentication
+required; the separate LAN listener on port 3081 is disabled. Since NixLoom
+already makes DSH's port 3080 reachable through Tailscale, pair Whaleness once
+using `ws://<nixloom-host>:3080/ws/mobile`. Keep both devices on the same
+tailnet. The paired device credential is retained, so it reconnects when NixLoom
+starts; revoke the device in DSH's Mobile Devices panel to remove its access.
 
 The launcher exposes Node internals through Node's own loader because the upstream
 native getter does not recognize Nix-built Node. Bash uses the native `shellPath`
