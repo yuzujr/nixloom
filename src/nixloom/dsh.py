@@ -158,7 +158,7 @@ def managed_plugins(config: Config) -> list[ManagedPlugin]:
             settings={
                 "gatewayMode": "persistent",
                 "requireAuth": True,
-                "adminLoopbackOnly": not tailnet_enabled(),
+                "adminLoopbackOnly": True,
                 "lanEnabled": False,
             },
         ),
@@ -274,6 +274,13 @@ def managed_settings(config: Config) -> list[dict[str, Any]]:
         ],
     }
     settings = [
+        {
+            "id": "webserver",
+            "config": {
+                "host": bind_host(),
+                "port": config.integer("ports.dsh", 3080, minimum=1),
+            },
+        },
         {"id": "web", "config": {"searchProvider": "tavily", "fetchProvider": "http"}},
         {"id": "llm-pi-ai", "config": {"providers": {"nixloom": provider}}},
         {
@@ -315,7 +322,6 @@ def sync_settings(config: Config, target: Path) -> None:
         rows = []
     if not isinstance(rows, list) or any(not isinstance(row, dict) for row in rows):
         raise ConfigError(f"{target} must contain a Cordis patch list")
-    rows = [row for row in rows if row.get("id") != "webserver"]
     for managed in managed_settings(config):
         row = next((row for row in rows if row.get("id") == managed["id"]), None)
         if row is None:
@@ -518,34 +524,6 @@ def tailnet_identity() -> dict[str, Any]:
     }
 
 
-def ensure_tailnet_tls(paths: RuntimePaths, hostname: str) -> tuple[Path, Path]:
-    tls_dir = paths.state / ".dsh/tls"
-    tls_dir.mkdir(parents=True, exist_ok=True, mode=0o700)
-    cert_path = tls_dir / "tailnet.crt"
-    key_path = tls_dir / "tailnet.key"
-    try:
-        subprocess.run(
-            [
-                "tailscale",
-                "cert",
-                "--cert-file",
-                str(cert_path),
-                "--key-file",
-                str(key_path),
-                hostname,
-            ],
-            check=True,
-            capture_output=True,
-            text=True,
-        )
-    except subprocess.CalledProcessError as error:
-        message = error.stderr.strip() or str(error)
-        raise ConfigError(
-            f"Failed to acquire Tailscale TLS certificate for {hostname}: {message}"
-        ) from error
-    return cert_path, key_path
-
-
 def tailnet_url(config: Config) -> str | None:
     if not tailnet_enabled():
         return None
@@ -553,15 +531,8 @@ def tailnet_url(config: Config) -> str | None:
         identity = tailnet_identity()
     except (ConfigError, OSError, subprocess.CalledProcessError, json.JSONDecodeError):
         return None
-    return f"https://{identity['hostname']}:{config.integer('ports.dsh', 3080)}/"
-
-
-def service_url(config: Config) -> str:
-    url = tailnet_url(config)
-    if url:
-        return url
-    scheme = "https" if tailnet_enabled() else "http"
-    return f"{scheme}://127.0.0.1:{config.integer('ports.dsh', 3080)}/"
+    hostname = identity["hostname"].split(".", 1)[0]
+    return f"http://{hostname}:{config.integer('ports.dsh', 3080)}/"
 
 
 def _write_json(target: Path, value: Any) -> None:
@@ -594,13 +565,16 @@ def run(config: Config, paths: RuntimePaths, *, dry_run: bool = False) -> None:
         print(" ".join(args))
         return
     require_prepared(config, paths)
+    print(
+        f"Starting DSH on http://127.0.0.1:{config.integer('ports.dsh', 3080)}",
+        file=sys.stderr,
+    )
     os.chdir(workspace(config, paths))
     values = environment(config, paths)
     values["NIXLOOM_DSH_LOCAL_ACCESS"] = "1"
     if tailnet_enabled():
         identity = tailnet_identity()
         port = config.integer("ports.dsh", 3080)
-        cert_path, key_path = ensure_tailnet_tls(paths, identity["hostname"])
         hosts = [
             f"{identity['hostname']}:{port}",
             f"{identity['hostname'].split('.', 1)[0]}:{port}",
@@ -614,23 +588,7 @@ def run(config: Config, paths: RuntimePaths, *, dry_run: bool = False) -> None:
         ]
         values["NIXLOOM_DSH_TAILNET_HOSTS"] = json.dumps(hosts)
         values["NIXLOOM_DSH_TAILNET_PEERS"] = json.dumps(identity["peers"])
-        args.extend(
-            [
-                "--tls-cert",
-                str(cert_path),
-                "--tls-key",
-                str(key_path),
-                "--public-url",
-                f"https://{identity['hostname']}:{port}/",
-                "--trusted-host",
-                *hosts,
-            ]
-        )
-    scheme = "https" if tailnet_enabled() else "http"
-    print(
-        f"Starting DSH on {scheme}://127.0.0.1:{config.integer('ports.dsh', 3080)}",
-        file=sys.stderr,
-    )
+        args.extend(["--trusted-host", *hosts])
     os.execvpe(args[0], args, values)
 
 
