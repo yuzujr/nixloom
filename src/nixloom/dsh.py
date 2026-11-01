@@ -124,6 +124,31 @@ def _installed_package_version(target: Path, package: str) -> str | None:
         return None
 
 
+def _allow_install_scripts(target: Path) -> None:
+    allowed = (
+        "@deepseek-ai/dsh-subprocess-local",
+        "@google/genai",
+        "koffi",
+        "node-pty",
+        "protobufjs",
+    )
+    manifest = target / "package.json"
+    if manifest.exists():
+        try:
+            package = json.loads(manifest.read_text(encoding="utf-8"))
+        except json.JSONDecodeError as error:
+            raise ConfigError(f"invalid npm manifest {manifest}: {error}") from error
+        if not isinstance(package, dict):
+            raise ConfigError(f"npm manifest {manifest} must contain an object")
+    else:
+        package = {"private": True}
+    policies = package.setdefault("allowScripts", {})
+    if not isinstance(policies, dict):
+        raise ConfigError(f"npm manifest {manifest} has an invalid allowScripts field")
+    policies.update(dict.fromkeys(allowed, True))
+    manifest.write_text(json.dumps(package, indent=2) + "\n", encoding="utf-8")
+
+
 def managed_plugins(config: Config) -> list[ManagedPlugin]:
     return [
         ManagedPlugin(
@@ -175,6 +200,8 @@ def install(config: Config, paths: RuntimePaths, *, dry_run: bool = False) -> No
                 prefix=".install-", dir=target.parent
             ) as staging:
                 app = Path(staging) / "app"
+                app.mkdir()
+                _allow_install_scripts(app)
                 print(f"Installing {' '.join(packages)}...", flush=True)
                 subprocess.run(
                     [
@@ -183,8 +210,6 @@ def install(config: Config, paths: RuntimePaths, *, dry_run: bool = False) -> No
                         "--prefix",
                         str(app),
                         "--save-exact",
-                        "--allow-scripts",
-                        "@deepseek-ai/dsh-subprocess-local,@google/genai,koffi,node-pty,protobufjs",
                         "--no-audit",
                         "--no-fund",
                         *packages,
@@ -203,6 +228,7 @@ def install(config: Config, paths: RuntimePaths, *, dry_run: bool = False) -> No
                 != plugin.version
             ]
             if missing:
+                _allow_install_scripts(target)
                 subprocess.run(
                     [
                         "npm",
@@ -210,8 +236,6 @@ def install(config: Config, paths: RuntimePaths, *, dry_run: bool = False) -> No
                         "--prefix",
                         str(target),
                         "--save-exact",
-                        "--allow-scripts",
-                        "@deepseek-ai/dsh-subprocess-local,@google/genai,koffi,node-pty,protobufjs",
                         "--no-audit",
                         "--no-fund",
                         *missing,
