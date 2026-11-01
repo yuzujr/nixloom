@@ -259,9 +259,7 @@ def _warm_model(config: Config) -> None:
 
 def _display_url(report: ServiceReport, config: Config) -> str:
     if report.spec.name == "dsh":
-        url = dsh.tailnet_url(config)
-        if url:
-            return url
+        return f"http://127.0.0.1:{config.integer('ports.dsh', 3080)}/"
     return report.spec.url.removesuffix("/health")
 
 
