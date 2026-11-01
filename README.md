@@ -105,8 +105,8 @@ Enabling a frontend creates only that frontend's package and systemd unit.
 
 ### DSH Web through npm
 
-DSH is the default frontend when NixLoom is enabled. Home Manager installs the
-pinned npm release and image plugin during activation, configures the local
+DSH is the default frontend when NixLoom is enabled. NixLoom installs the
+pinned npm release and plugins when the DSH service starts, configures the local
 providers, and supplies Node, pnpm and the systemd user unit. No separate
 installation command is needed. Set `services.nixloom.dsh.enable = false` for
 a runtime without DSH.
@@ -121,11 +121,11 @@ launcher enables local access for its managed service; the upstream
 Host/Origin checks still protect API requests. Direct DSH invocations retain
 upstream authentication. SillyTavern is also loopback-only and needs no login.
 
-Activation downloads packages only when the configured version or image plugin
-is missing; subsequent activations reuse them. Change `dsh.version` in YAML
-and activate Home Manager again to upgrade. Installation needs network access
-on the first activation; a failed download fails activation instead of leaving
-a partial npm release. Service startup does not download packages.
+Startup downloads packages only when the configured version or a managed plugin
+is missing; subsequent starts reuse them. Change `dsh.version` in YAML and
+update the NixOS configuration to upgrade. Installation needs network access
+when a new package is first added; a failed download fails startup instead of
+leaving a partial npm release.
 
 - program and npm lock: `~/.cache/nixloom/dsh/releases/<version>`
 - npm/pnpm/native caches: `~/.cache/nixloom/dsh`
@@ -147,6 +147,14 @@ gateway, waits for the shared GPU scheduler to finish, and returns the video as 
 downloadable DSH file attachment. The same H3 graphs remain available in the
 ComfyUI browser. Image editing still depends on the capabilities of the selected
 SD backend.
+
+NixLoom also installs `dsh-plugin-mobile-gateway` 0.11.1 for the Whaleness
+mobile client. Device authentication stays required. Its mobile WebSocket
+listener binds only to `127.0.0.1:3081`; the gateway stays disabled until enabled
+from DSH's Mobile Devices panel. To connect over Tailscale, expose that local
+listener with `tailscale serve --bg 3081`, then pair using the generated
+`wss://<device>.<tailnet>.ts.net/ws/mobile` address. Do not expose port 3081
+directly to the network.
 
 The launcher exposes Node internals through Node's own loader because the upstream
 native getter does not recognize Nix-built Node. Bash uses the native `shellPath`

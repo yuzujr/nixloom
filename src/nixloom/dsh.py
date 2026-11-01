@@ -10,6 +10,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
@@ -20,6 +21,20 @@ from .config import Config, ConfigError, RuntimePaths
 
 DEFAULT_VERSION = "0.2.0-rc.2"
 IMAGE_PLUGIN_VERSION = "0.8.5"
+MOBILE_GATEWAY_PLUGIN = "dsh-plugin-mobile-gateway"
+MOBILE_GATEWAY_PLUGIN_VERSION = "0.11.1"
+
+
+@dataclass(frozen=True)
+class ManagedPlugin:
+    package: str
+    version: str
+    enabled: bool = True
+    settings_id: str | None = None
+    settings: dict[str, Any] | None = None
+    patch_id: str | None = None
+    patch_settings: dict[str, Any] | None = None
+    remove_patch_keys: tuple[str, ...] = ()
 
 
 def app_directory(config: Config, paths: RuntimePaths) -> Path:
@@ -100,15 +115,58 @@ def require_installed(config: Config, paths: RuntimePaths) -> None:
     entry = app_directory(config, paths) / "node_modules/@deepseek-ai/dsh/lib/bin.js"
     if not entry.is_file():
         raise ConfigError(
-            "DSH is not installed for this version; rerun Home Manager activation"
+            "DSH is not installed for this version; start NixLoom to install it"
         )
+
+
+def _installed_package_version(target: Path, package: str) -> str | None:
+    manifest = target / "node_modules" / package / "package.json"
+    try:
+        return json.loads(manifest.read_text(encoding="utf-8")).get("version")
+    except (OSError, json.JSONDecodeError):
+        return None
+
+
+def managed_plugins(config: Config) -> list[ManagedPlugin]:
+    return [
+        ManagedPlugin(
+            package=MOBILE_GATEWAY_PLUGIN,
+            version=MOBILE_GATEWAY_PLUGIN_VERSION,
+            settings_id="mobile-gateway",
+            settings={
+                "requireAuth": True,
+                "adminLoopbackOnly": True,
+                "lanEnabled": True,
+                "lanHost": "127.0.0.1",
+                "lanPort": 3081,
+            },
+        ),
+        ManagedPlugin(
+            package="dsh-image-gen",
+            version=IMAGE_PLUGIN_VERSION,
+            enabled=config.boolean("images.enabled"),
+            patch_id="image-gen",
+            patch_settings=(
+                _image_settings(config) if config.boolean("images.enabled") else None
+            ),
+            remove_patch_keys=(
+                "openaiCompatBaseURL",
+                "openaiCompatModel",
+                "openaiCompatSizes",
+            ),
+        ),
+    ]
 
 
 def install(config: Config, paths: RuntimePaths, *, dry_run: bool = False) -> None:
     target = app_directory(config, paths)
-    packages = [f"@deepseek-ai/dsh@{config.string('dsh.version', DEFAULT_VERSION)}"]
-    if config.boolean("images.enabled"):
-        packages.append(f"dsh-image-gen@{IMAGE_PLUGIN_VERSION}")
+    dsh_package = f"@deepseek-ai/dsh@{config.string('dsh.version', DEFAULT_VERSION)}"
+    plugins = managed_plugins(config)
+    packages = [dsh_package] + [
+        f"{plugin.package}@{plugin.version}"
+        for plugin in plugins
+        if plugin.enabled
+    ]
     if dry_run:
         print(f"npm install {' '.join(packages)} -> {target}")
         print(f"DSH_HOME={paths.state / '.dsh'}")
@@ -140,24 +198,31 @@ def install(config: Config, paths: RuntimePaths, *, dry_run: bool = False) -> No
                 )
                 dsh_compat.install(app)
                 os.replace(app, target)
-        elif (
-            config.boolean("images.enabled")
-            and not (target / "node_modules/dsh-image-gen").is_dir()
-        ):
-            subprocess.run(
-                [
-                    "npm",
-                    "install",
-                    "--prefix",
-                    str(target),
-                    "--save-exact",
-                    "--no-audit",
-                    "--no-fund",
-                    packages[-1],
-                ],
-                check=True,
-                env=environment(config, paths),
-            )
+        else:
+            missing = [
+                f"{plugin.package}@{plugin.version}"
+                for plugin in plugins
+                if plugin.enabled
+                and _installed_package_version(target, plugin.package)
+                != plugin.version
+            ]
+            if missing:
+                subprocess.run(
+                    [
+                        "npm",
+                        "install",
+                        "--prefix",
+                        str(target),
+                        "--save-exact",
+                        "--allow-scripts",
+                        "@deepseek-ai/dsh-subprocess-local,@google/genai,koffi,node-pty,protobufjs",
+                        "--no-audit",
+                        "--no-fund",
+                        *missing,
+                    ],
+                    check=True,
+                    env=environment(config, paths),
+                )
         require_installed(config, paths)
         dsh_compat.install(target)
         prepare(config, paths)
@@ -188,7 +253,7 @@ def managed_settings(config: Config) -> list[dict[str, Any]]:
             }
         ],
     }
-    return [
+    settings = [
         {
             "id": "webserver",
             "config": {
@@ -207,6 +272,12 @@ def managed_settings(config: Config) -> list[dict[str, Any]]:
             },
         },
     ]
+    settings.extend(
+        {"id": plugin.settings_id, "config": plugin.settings}
+        for plugin in managed_plugins(config)
+        if plugin.enabled and plugin.settings_id and plugin.settings is not None
+    )
+    return settings
 
 
 def _image_settings(config: Config) -> dict[str, Any]:
@@ -262,6 +333,61 @@ def _write_yaml(target: Path, value: Any) -> None:
         Path(temporary).unlink(missing_ok=True)
 
 
+def _sync_profile_bundle(
+    profile: Path,
+    manifest: dict[str, Any],
+    bundles: list[str],
+    plugin: ManagedPlugin,
+    source: Path,
+) -> None:
+    dependencies = manifest.setdefault("dependencies", {})
+    link = profile / "node_modules" / plugin.package
+    if plugin.enabled:
+        if not source.is_dir():
+            raise ConfigError(
+                f"DSH plugin {plugin.package} is missing from the NixLoom install"
+            )
+        if plugin.package not in bundles:
+            bundles.append(plugin.package)
+        dependencies[plugin.package] = f"file:{source}"
+        link.parent.mkdir(exist_ok=True, mode=0o700)
+        if link.is_symlink():
+            link.unlink()
+        elif link.exists():
+            raise ConfigError(f"DSH plugin path is not a NixLoom link: {link}")
+        link.symlink_to(source, target_is_directory=True)
+        return
+
+    if plugin.package in bundles:
+        bundles.remove(plugin.package)
+    if dependencies.get(plugin.package) == f"file:{source}":
+        del dependencies[plugin.package]
+    if link.is_symlink() and link.resolve() == source.resolve():
+        link.unlink()
+
+
+def _sync_plugin_patch_settings(
+    rows: list[dict[str, Any]], plugins: list[ManagedPlugin]
+) -> None:
+    for plugin in plugins:
+        if not plugin.patch_id:
+            continue
+        matching = [row for row in rows if row.get("id") == plugin.patch_id]
+        if not plugin.enabled or plugin.patch_settings is None:
+            rows[:] = [row for row in rows if row.get("id") != plugin.patch_id]
+            continue
+        if matching:
+            row = matching[0]
+            settings = row.setdefault("config", {})
+            if not isinstance(settings, dict):
+                raise ConfigError(f"DSH {plugin.patch_id} config must be a mapping")
+            for key in plugin.remove_patch_keys:
+                settings.pop(key, None)
+            settings.update(plugin.patch_settings)
+        else:
+            rows.append({"id": plugin.patch_id, "config": plugin.patch_settings})
+
+
 def prepare(config: Config, paths: RuntimePaths) -> None:
     require_installed(config, paths)
     work = workspace(config, paths)
@@ -277,33 +403,15 @@ def prepare(config: Config, paths: RuntimePaths) -> None:
     manifest_path = profile / "package.json"
     manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
     bundles = manifest["dsh"]["profile"]["bundles"]
-    if config.boolean("images.enabled"):
-        plugin = app_directory(config, paths) / "node_modules/dsh-image-gen"
-        if not plugin.is_dir():
-            raise ConfigError(
-                "DSH image plugin is missing; rerun Home Manager activation"
-            )
-        if "dsh-image-gen" not in bundles:
-            bundles.append("dsh-image-gen")
-        manifest.setdefault("dependencies", {})["dsh-image-gen"] = f"file:{plugin}"
-        modules = profile / "node_modules"
-        modules.mkdir(exist_ok=True, mode=0o700)
-        link = modules / "dsh-image-gen"
-        if link.is_symlink():
-            link.unlink()
-        elif link.exists():
-            raise ConfigError(f"DSH image plugin path is not a NixLoom link: {link}")
-        link.symlink_to(plugin, target_is_directory=True)
-    else:
-        if "dsh-image-gen" in bundles:
-            bundles.remove("dsh-image-gen")
-        plugin = app_directory(config, paths) / "node_modules/dsh-image-gen"
-        dependencies = manifest.get("dependencies", {})
-        if dependencies.get("dsh-image-gen") == f"file:{plugin}":
-            del dependencies["dsh-image-gen"]
-        link = profile / "node_modules/dsh-image-gen"
-        if link.is_symlink() and link.resolve() == plugin.resolve():
-            link.unlink()
+    plugins = managed_plugins(config)
+    for plugin in plugins:
+        _sync_profile_bundle(
+            profile,
+            manifest,
+            bundles,
+            plugin,
+            app_directory(config, paths) / "node_modules" / plugin.package,
+        )
     _write_json(manifest_path, manifest)
     patch = profile / "cordis.patch.yml"
     sync_settings(config, patch)
@@ -331,25 +439,8 @@ def prepare(config: Config, paths: RuntimePaths) -> None:
                 item for item in row["insert"] if item.get("id") not in managed_ids
             ]
     rows = [row for row in rows if row != {"insert": []}]
+    _sync_plugin_patch_settings(rows, plugins)
     _write_yaml(patch, rows)
-    if config.boolean("images.enabled"):
-        rows = yaml.safe_load(patch.read_text(encoding="utf-8"))
-        row = next((row for row in rows if row.get("id") == "image-gen"), None)
-        if row is None:
-            rows.append({"id": "image-gen", "config": _image_settings(config)})
-        else:
-            settings = row.setdefault("config", {})
-            for key in (
-                "openaiCompatBaseURL",
-                "openaiCompatModel",
-                "openaiCompatSizes",
-            ):
-                settings.pop(key, None)
-            settings.update(_image_settings(config))
-        _write_yaml(patch, rows)
-    else:
-        rows = yaml.safe_load(patch.read_text(encoding="utf-8"))
-        _write_yaml(patch, [row for row in rows if row.get("id") != "image-gen"])
     _write_json(
         profile / ".nixloom-prepared.json",
         {"fingerprint": _profile_fingerprint(config, paths)},
@@ -363,6 +454,10 @@ def _profile_fingerprint(config: Config, paths: RuntimePaths) -> str:
         "settings": managed_settings(config),
         "images": _image_settings(config) if config.boolean("images.enabled") else None,
         "video": _video_settings(config),
+        "managed_plugin_versions": [
+            (plugin.package, plugin.version, plugin.enabled)
+            for plugin in managed_plugins(config)
+        ],
         "plugins": str(Path(__file__).parent),
     }
     return hashlib.sha256(json.dumps(managed, sort_keys=True).encode()).hexdigest()
@@ -375,7 +470,7 @@ def require_prepared(config: Config, paths: RuntimePaths) -> None:
     if not stamp.is_file() or json.loads(stamp.read_text()).get(
         "fingerprint"
     ) != _profile_fingerprint(config, paths):
-        raise ConfigError("DSH profile is stale; rerun Home Manager activation")
+        raise ConfigError("DSH profile is stale; start NixLoom to refresh it")
 
 
 def tailnet_enabled() -> bool:
