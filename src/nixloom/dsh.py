@@ -20,9 +20,6 @@ from . import dsh_compat
 from .config import Config, ConfigError, RuntimePaths
 
 DEFAULT_VERSION = "0.2.0-rc.2"
-IMAGE_PLUGIN_VERSION = "0.8.5"
-MOBILE_GATEWAY_PLUGIN = "dsh-plugin-mobile-gateway"
-MOBILE_GATEWAY_PLUGIN_VERSION = "0.11.1"
 
 
 @dataclass(frozen=True)
@@ -130,8 +127,8 @@ def _installed_package_version(target: Path, package: str) -> str | None:
 def managed_plugins(config: Config) -> list[ManagedPlugin]:
     return [
         ManagedPlugin(
-            package=MOBILE_GATEWAY_PLUGIN,
-            version=MOBILE_GATEWAY_PLUGIN_VERSION,
+            package="dsh-plugin-mobile-gateway",
+            version="0.11.1",
             settings_id="mobile-gateway",
             settings={
                 "requireAuth": True,
@@ -143,7 +140,7 @@ def managed_plugins(config: Config) -> list[ManagedPlugin]:
         ),
         ManagedPlugin(
             package="dsh-image-gen",
-            version=IMAGE_PLUGIN_VERSION,
+            version="0.8.5",
             enabled=config.boolean("images.enabled"),
             patch_id="image-gen",
             patch_settings=(
