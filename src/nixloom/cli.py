@@ -293,19 +293,28 @@ def command_start(args: argparse.Namespace) -> int:
     if any(spec.name == "dsh" for spec in specs):
         dsh.require_installed(config, paths)
     print(f"{action} NixLoom...", flush=True)
-    operations.systemctl(verb, "nixloom.target")
-    # Starting an already-active target does not retry a failed Wanted unit.
-    # Explicitly start the selected services so `nixloom start` also repairs a
-    # partially failed stack.
-    operations.systemctl("start", *(spec.unit for spec in specs))
-    _wait_for_endpoint(specs[0], timeout=120)
-    _warm_model(config)
-    for spec in specs[1:]:
-        _wait_for_endpoint(spec, timeout=60)
-    reports = _collect_reports(config)
-    unhealthy = [report.spec.name for report in reports if report.state != "ready"]
-    if unhealthy:
-        raise ConfigError("services are not ready: " + ", ".join(unhealthy))
+    try:
+        operations.systemctl(verb, "nixloom.target")
+        # Starting an already-active target does not retry a failed Wanted unit.
+        # Explicitly start selected units to repair a partially failed stack.
+        operations.systemctl("start", *(spec.unit for spec in specs))
+        _wait_for_endpoint(specs[0], timeout=120)
+        _warm_model(config)
+        for spec in specs[1:]:
+            _wait_for_endpoint(spec, timeout=60)
+        reports = _collect_reports(config)
+        unhealthy = [report.spec.name for report in reports if report.state != "ready"]
+        if unhealthy:
+            raise ConfigError("services are not ready: " + ", ".join(unhealthy))
+    except BaseException:
+        # Treat startup as an all-or-nothing operation: don't leave a service
+        # reachable when another selected service failed to start or become healthy.
+        for units in (("nixloom.target",), tuple(spec.unit for spec in specs)):
+            try:
+                operations.systemctl("stop", *units, check=False)
+            except OSError:
+                pass
+        raise
     print("\nNixLoom ready")
     _print_ready_endpoints(reports, config)
     return 0
