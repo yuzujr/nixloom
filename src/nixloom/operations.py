@@ -313,9 +313,11 @@ def restore_backup(
                         )
                     )
                     allowed = any(
-                        prefix[: len(relative_parts)] == relative_parts
-                        if member.isdir()
-                        else relative_parts[: len(prefix)] == prefix
+                        relative_parts[: len(prefix)] == prefix
+                        or (
+                            member.isdir()
+                            and prefix[: len(relative_parts)] == relative_parts
+                        )
                         for prefix in allowed_roots
                     )
                     if not allowed:
