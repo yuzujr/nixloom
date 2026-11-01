@@ -2,7 +2,5 @@
   "upstream": "0ebcca7583e082716f79b0b55bc1749d48269cc8db2989b043b321b57abd3684",
   "patched": "b700bec3e735920169a576820e65f9051c705f3fb3c3dde88abbc50aac9324a5",
   "webserver_upstream": "08907285802f0edd3aeb68c91fb443be2804879ab3d41104c4600424be06f3ab",
-  "webserver_patched": "346f290e666edd3f8c0bd77a41b0f0318235ba71b6ad87673f0cc78f0042fd40",
-  "mobile_gateway_upstream": "01a2d488fbe00a3b0faaeddf6912928319f93a6013b73c8a957d95cf1e40eadf",
-  "mobile_gateway_patched": "bf8f5cd93cc8561e1304163d1f37dfb7823087f8803e330f2f585e0c82019aff"
+  "webserver_patched": "346f290e666edd3f8c0bd77a41b0f0318235ba71b6ad87673f0cc78f0042fd40"
 }

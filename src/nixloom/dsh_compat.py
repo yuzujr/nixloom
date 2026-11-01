@@ -1,4 +1,4 @@
-"""Install and verify patches required by managed DSH access, wildcard address binding, and mobile gateway."""
+"""Install and verify patches required by managed DSH access and wildcard address binding."""
 
 from __future__ import annotations
 
@@ -16,7 +16,6 @@ RESOURCES = Path(__file__).with_name("dsh-patches")
 CONNECTION = Path("node_modules/@deepseek-ai/dsh-client-connection/lib/index.js")
 ACCESS = CONNECTION.with_name("nixloom-access.mjs")
 WEBSERVER = Path("node_modules/@deepseek-ai/dsh-host-webserver/lib/index.js")
-MOBILE_GATEWAY = Path("node_modules/dsh-plugin-mobile-gateway/lib/index.mjs")
 
 
 def _digest(path: Path) -> str:
@@ -31,8 +30,6 @@ def _expected() -> dict[str, str]:
         "patch": _digest(RESOURCES / "managed-access.patch"),
         "webserver": manifest["webserver_patched"],
         "wildcard_patch": _digest(RESOURCES / "wildcard-host.patch"),
-        "mobile_gateway": manifest["mobile_gateway_patched"],
-        "mobile_gateway_patch": _digest(RESOURCES / "mobile-gateway.patch"),
     }
 
 
@@ -128,24 +125,6 @@ def install(target: Path) -> None:
             manifest["webserver_patched"],
         )
 
-    mobile_gateway = target / MOBILE_GATEWAY
-    if mobile_gateway.is_file():
-        mgw_digest = _digest(mobile_gateway)
-        if mgw_digest not in {
-            manifest["mobile_gateway_upstream"],
-            manifest["mobile_gateway_patched"],
-        }:
-            raise ConfigError(
-                "DSH mobile-gateway source changed; review the mobile-gateway patch"
-            )
-        if mgw_digest == manifest["mobile_gateway_upstream"]:
-            _apply_patch(
-                target,
-                MOBILE_GATEWAY,
-                RESOURCES / "mobile-gateway.patch",
-                manifest["mobile_gateway_patched"],
-            )
-
     helper = Path(__file__).with_name("dsh_access.mjs")
     shutil.copyfile(helper, target / ACCESS)
     (target / ".nixloom-compat.json").write_text(json.dumps(_expected()))
@@ -161,10 +140,6 @@ def verify(target: Path) -> None:
         or _digest(target / CONNECTION) != expected["connection"]
         or _digest(target / ACCESS) != expected["access"]
         or _digest(target / WEBSERVER) != expected["webserver"]
-        or (
-            (target / MOBILE_GATEWAY).is_file()
-            and _digest(target / MOBILE_GATEWAY) != expected["mobile_gateway"]
-        )
     ):
         raise ConfigError(
             "DSH compatibility files are stale; rerun Home Manager activation"
