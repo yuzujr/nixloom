@@ -8,7 +8,12 @@ export function allowsManagedAccess(request, authority) {
     let url;
     try { url = new URL(`http://${authority}`); } catch { return false; }
     const address = request.socket?.remoteAddress?.replace(/^::ffff:/, '');
-    if (loopback(address) && ['127.0.0.1', 'localhost', '[::1]'].includes(url.hostname)) return true;
+    const localHosts = ['127.0.0.1', 'localhost', '[::1]'];
+    const localAddresses = JSON.parse(process.env.NIXLOOM_DSH_TAILNET_LOCAL_ADDRESSES || '[]');
+    if (
+        localHosts.includes(url.hostname) &&
+        (loopback(address) || localAddresses.includes(address))
+    ) return true;
     const hosts = JSON.parse(process.env.NIXLOOM_DSH_TAILNET_HOSTS || '[]');
     const peers = JSON.parse(process.env.NIXLOOM_DSH_TAILNET_PEERS || '[]');
     return isIP(address || '') !== 0 && hosts.includes(url.host) && (loopback(address) || peers.includes(address));
