@@ -166,20 +166,41 @@ def create_backup(config: Config, paths: RuntimePaths, destination: Path) -> Pat
         stage = Path(temporary)
         shutil.copy2(paths.config_file, stage / "config.yaml")
         staged_state = stage / "state"
+        staged_data = stage / "data"
         staged_state.mkdir()
-        for relative in (
-            Path(".dsh"),
-            Path(".sillytavern/xdg-data"),
+        staged_data.mkdir()
+        custom_workspace = config.string("dsh.workspace", "")
+        data_relatives = [
+            Path("comfyui/input"),
+            Path("comfyui/output"),
+            Path("comfyui/workflows"),
+        ]
+        if not custom_workspace:
+            data_relatives.append(Path("dsh/workspace"))
+        for root, relatives in (
+            (paths.state, (Path(".dsh"), Path(".sillytavern"), Path("comfyui"))),
+            (paths.data, tuple(data_relatives)),
         ):
-            source = paths.state / relative
-            if source.exists():
+            for relative in relatives:
+                source = root / relative
+                if not source.exists():
+                    continue
+                target_root = staged_state if root == paths.state else staged_data
                 shutil.copytree(
                     source,
-                    staged_state / relative,
+                    target_root / relative,
                     symlinks=True,
                     ignore=shutil.ignore_patterns("node_modules")
                     if relative == Path(".dsh")
                     else None,
+                )
+        if custom_workspace:
+            source = Path(custom_workspace).expanduser()
+            if source.exists():
+                shutil.copytree(
+                    source,
+                    staged_data / "dsh/workspace",
+                    symlinks=True,
                 )
         for database in staged_state.rglob("*.db"):
             source = paths.state / database.relative_to(staged_state)
@@ -197,9 +218,19 @@ def create_backup(config: Config, paths: RuntimePaths, destination: Path) -> Pat
             output.add(stage / "config.yaml", arcname="config.yaml", recursive=False)
             if any(staged_state.iterdir()):
                 output.add(staged_state, arcname="state")
+            if any(staged_data.iterdir()):
+                output.add(staged_data, arcname="data")
         with tarfile.open(temporary_archive, "r:gz") as verification:
-            if "config.yaml" not in verification.getnames():
-                raise ConfigError("backup verification failed: config.yaml is absent")
+            names = set(verification.getnames())
+            required = {"config.yaml"}
+            for path in stage.rglob("*"):
+                if path.is_file():
+                    required.add(path.relative_to(stage).as_posix())
+            missing = required - names
+            if missing:
+                raise ConfigError(
+                    "backup verification failed; missing: " + ", ".join(sorted(missing))
+                )
         os.chmod(temporary_archive, 0o600)
         os.replace(temporary_archive, archive)
     return archive

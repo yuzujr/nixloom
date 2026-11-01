@@ -242,10 +242,10 @@ The key is passed only in the server process environment, never written into
 the plugin profile or Nix store. DSH's original `web_search` tool and HTTP fetch
 provider stay in use.
 
-`nixloom backup` temporarily stops the stack and archives only user-owned
-configuration plus DSH and SillyTavern state. Models, caches and DSH's
-reinstallable `node_modules` directories are
-excluded.
+`nixloom backup` temporarily stops the stack and archives the NixLoom
+configuration, DSH profiles and workspace, all SillyTavern XDG data, ComfyUI
+database and user workflows, plus ComfyUI input and output files. It excludes
+downloaded models, caches and DSH's reinstallable `node_modules` directories.
 
 ## Development
 

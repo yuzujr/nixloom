@@ -481,7 +481,9 @@ def command_backup(args: argparse.Namespace) -> None:
         == 0
     )
     if args.dry_run:
-        print(f"backup config, DSH and SillyTavern state -> {destination}")
+        print(
+            f"backup config and user data (DSH, SillyTavern, ComfyUI) -> {destination}"
+        )
         print(f"temporarily stop running stack: {str(running).lower()}")
         return
     try:
