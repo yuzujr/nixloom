@@ -410,7 +410,8 @@ def tailnet_url(config: Config) -> str | None:
         identity = tailnet_identity()
     except (ConfigError, OSError, subprocess.CalledProcessError, json.JSONDecodeError):
         return None
-    return f"http://{identity['hostname']}:{config.integer('ports.dsh', 3080)}/"
+    hostname = identity["hostname"].split(".", 1)[0]
+    return f"http://{hostname}:{config.integer('ports.dsh', 3080)}/"
 
 
 def _write_json(target: Path, value: Any) -> None:

@@ -265,7 +265,7 @@ def _print_ready_endpoints(reports: list[ServiceReport], config: Config) -> None
             if report.spec.name == "dsh":
                 url = dsh.tailnet_url(config)
                 if url:
-                    print(f"  {'tailnet':<12} {url}")
+                    print(f"  {'dsh (tailnet)':<12} {url}")
 
 
 def command_start(args: argparse.Namespace) -> int:
@@ -326,7 +326,7 @@ def command_status(args: argparse.Namespace) -> int:
         print(f"{report.spec.name:<13} {report.state:<11} {url}")
     url = dsh.tailnet_url(config)
     if url:
-        print(f"\nTailnet: {url}")
+        print(f"\nDSH (tailnet): {url}")
     if getattr(args, "verbose", False):
         print(f"\n{'SERVICE':<13} {'SYSTEMD':<18} HEALTH")
         for report in reports:
