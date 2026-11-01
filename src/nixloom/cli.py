@@ -470,6 +470,46 @@ def command_dsh(args: argparse.Namespace) -> None:
 
 def command_backup(args: argparse.Namespace) -> None:
     paths, config = _context(args.config)
+    if args.destination == "restore":
+        if not args.archive:
+            raise ConfigError("usage: nixloom backup restore ARCHIVE [--dry-run]")
+        archive = Path(args.archive)
+        if args.dry_run:
+            count, size = operations.restore_backup(
+                archive, config, paths, dry_run=True
+            )
+            print(
+                f"would merge {count} files ({operations.human_size(size)}) from {archive}"
+            )
+            print(
+                "current config.yaml is kept; matching files are replaced, "
+                "other current files are kept"
+            )
+            return
+
+        running = (
+            operations.systemctl(
+                "is-active", "--quiet", "nixloom.target", check=False
+            ).returncode
+            == 0
+        )
+        try:
+            if running:
+                print("Stopping NixLoom for a consistent restore...", flush=True)
+                operations.systemctl("stop", "nixloom.target")
+            safety = operations.create_backup(
+                config, paths, Path.home() / "backups/nixloom"
+            )
+            print(f"Current data saved first: {safety}", flush=True)
+            count, size = operations.restore_backup(archive, config, paths)
+        finally:
+            if running:
+                print("Restoring NixLoom services...", flush=True)
+                operations.systemctl("start", "nixloom.target")
+        print(f"merged {count} files ({operations.human_size(size)}) from {archive}")
+        return
+    if args.archive:
+        raise ConfigError("use: nixloom backup restore ARCHIVE")
     destination = Path(
         args.destination
         or os.environ.get("NIXLOOM_BACKUP_DIR", Path.home() / "backups/nixloom")
@@ -630,13 +670,20 @@ Run 'nixloom COMMAND --help' for details about a command.""",
 
     backup = commands.add_parser(
         "backup",
-        help="Back up private frontend state",
-        description="Back up private frontend state without model files.",
-        usage="%(prog)s [OPTION]... [DESTINATION]",
+        help="Back up or restore private application data",
+        description=(
+            "Create a backup, or merge an archive into current data. "
+            "Restore keeps files absent from the archive."
+        ),
+        usage="%(prog)s [OPTION]... [DESTINATION] | restore ARCHIVE",
     )
     backup.add_argument(
-        "destination", nargs="?", metavar="DESTINATION", help="backup directory"
+        "destination",
+        nargs="?",
+        metavar="DESTINATION",
+        help="backup directory, or the word 'restore'",
     )
+    backup.add_argument("archive", nargs="?", metavar="ARCHIVE", help="archive to merge")
     backup.add_argument("--dry-run", action="store_true", help="show the plan only")
     backup.set_defaults(handler=command_backup)
 

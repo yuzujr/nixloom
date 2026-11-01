@@ -236,6 +236,102 @@ def create_backup(config: Config, paths: RuntimePaths, destination: Path) -> Pat
     return archive
 
 
+def restore_backup(
+    archive: Path, config: Config, paths: RuntimePaths, *, dry_run: bool = False
+) -> tuple[int, int]:
+    """Merge a NixLoom archive into the active state and data directories."""
+    archive = archive.expanduser().resolve()
+    if not archive.is_file():
+        raise ConfigError(f"backup archive not found: {archive}")
+
+    with tempfile.TemporaryDirectory(prefix="nixloom-restore-") as temporary:
+        stage = Path(temporary)
+        files: list[tuple[tarfile.TarInfo, Path]] = []
+        total_bytes = 0
+        try:
+            with tarfile.open(archive, "r:gz") as source:
+                for member in source.getmembers():
+                    name = Path(member.name)
+                    if name.is_absolute() or ".." in name.parts:
+                        raise ConfigError("backup contains an unsafe path")
+                    if member.name == "config.yaml":
+                        if not member.isfile():
+                            raise ConfigError("backup config.yaml is not a regular file")
+                        continue
+                    if not name.parts or name.parts[0] not in {"state", "data"}:
+                        raise ConfigError(f"unexpected backup entry: {member.name}")
+                    relative_parts = name.parts[1:]
+                    allowed_roots = (
+                        ((".dsh",), (".sillytavern",), ("comfyui",))
+                        if name.parts[0] == "state"
+                        else (
+                            ("dsh", "workspace"),
+                            ("comfyui", "input"),
+                            ("comfyui", "output"),
+                            ("comfyui", "workflows"),
+                        )
+                    )
+                    allowed = any(
+                        prefix[: len(relative_parts)] == relative_parts
+                        if member.isdir()
+                        else relative_parts[: len(prefix)] == prefix
+                        for prefix in allowed_roots
+                    )
+                    if not allowed:
+                        raise ConfigError(f"unexpected backup entry: {member.name}")
+                    if member.isdir():
+                        continue
+                    if not member.isfile():
+                        raise ConfigError(
+                            f"backup contains a non-regular file: {member.name}"
+                        )
+                    relative = Path(*name.parts[1:])
+                    if not relative.parts:
+                        raise ConfigError(f"unexpected backup entry: {member.name}")
+                    extracted = stage / name
+                    extracted.parent.mkdir(parents=True, exist_ok=True)
+                    stream = source.extractfile(member)
+                    if stream is None:
+                        raise ConfigError(f"cannot read backup entry: {member.name}")
+                    with stream, extracted.open("wb") as output:
+                        shutil.copyfileobj(stream, output)
+                    os.chmod(extracted, member.mode & 0o777)
+                    os.utime(extracted, (member.mtime, member.mtime))
+                    files.append((member, extracted))
+                    total_bytes += member.size
+        except (tarfile.TarError, OSError) as error:
+            raise ConfigError(f"cannot read backup archive: {error}") from error
+
+        if not files:
+            raise ConfigError("backup contains no restorable data files")
+        if dry_run:
+            return len(files), total_bytes
+
+        if config.string("dsh.workspace", ""):
+            workspace = Path(config.string("dsh.workspace")).expanduser()
+        else:
+            workspace = paths.data / "dsh/workspace"
+        roots = {"state": paths.state, "data": paths.data}
+        for member, staged_file in files:
+            name = Path(member.name)
+            root = roots[name.parts[0]]
+            relative = Path(*name.parts[1:])
+            if name.parts[:3] == ("data", "dsh", "workspace"):
+                root = workspace
+                relative = Path(*name.parts[3:])
+            target = root / relative
+            target.parent.mkdir(parents=True, exist_ok=True)
+            resolved_root = root.resolve()
+            if not target.parent.resolve().is_relative_to(resolved_root):
+                raise ConfigError(f"restore path escapes its data directory: {target}")
+            if target.is_symlink():
+                target.unlink()
+            if target.exists() and target.is_dir():
+                raise ConfigError(f"cannot replace directory with backup file: {target}")
+            shutil.copy2(staged_file, target)
+    return len(files), total_bytes
+
+
 def _json_request(url: str, payload: dict[str, Any], timeout: int) -> dict[str, Any]:
     request = urllib.request.Request(
         url,

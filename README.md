@@ -246,6 +246,11 @@ provider stay in use.
 configuration, DSH profiles and workspace, all SillyTavern XDG data, ComfyUI
 database and user workflows, plus ComfyUI input and output files. It excludes
 downloaded models, caches and DSH's reinstallable `node_modules` directories.
+Restore an archive with `nixloom backup restore ARCHIVE`; add `--dry-run` to
+preview it. Restore merges files into the current data directories, replacing
+same-name files while keeping files absent from the archive. It first creates
+a safety backup in `~/backups/nixloom`. The active `config.yaml` is kept because
+NixOS manages it; the archived copy is available for manual recovery.
 
 ## Development
 
