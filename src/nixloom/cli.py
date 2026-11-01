@@ -683,7 +683,9 @@ Run 'nixloom COMMAND --help' for details about a command.""",
         metavar="DESTINATION",
         help="backup directory, or the word 'restore'",
     )
-    backup.add_argument("archive", nargs="?", metavar="ARCHIVE", help="archive to merge")
+    backup.add_argument(
+        "archive", nargs="?", metavar="ARCHIVE", help="archive to merge"
+    )
     backup.add_argument("--dry-run", action="store_true", help="show the plan only")
     backup.set_defaults(handler=command_backup)
 

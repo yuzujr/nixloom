@@ -74,9 +74,7 @@ def selected_assets(
                     ("audio_vae", "vae"),
                 )
             )
-        names = [
-            name for name, asset in catalog.items() if asset.get("path") in paths
-        ]
+        names = [name for name, asset in catalog.items() if asset.get("path") in paths]
     unknown = [name for name in names if name not in catalog]
     if unknown:
         raise ConfigError("unknown assets: " + ", ".join(unknown))
@@ -297,7 +295,9 @@ def restore_backup(
                         raise ConfigError("backup contains an unsafe path")
                     if member.name == "config.yaml":
                         if not member.isfile():
-                            raise ConfigError("backup config.yaml is not a regular file")
+                            raise ConfigError(
+                                "backup config.yaml is not a regular file"
+                            )
                         continue
                     if not name.parts or name.parts[0] not in {"state", "data"}:
                         raise ConfigError(f"unexpected backup entry: {member.name}")
@@ -370,7 +370,9 @@ def restore_backup(
             if target.is_symlink():
                 target.unlink()
             if target.exists() and target.is_dir():
-                raise ConfigError(f"cannot replace directory with backup file: {target}")
+                raise ConfigError(
+                    f"cannot replace directory with backup file: {target}"
+                )
             shutil.copy2(staged_file, target)
     return len(files), total_bytes
 

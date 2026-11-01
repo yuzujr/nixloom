@@ -189,9 +189,7 @@ def install(config: Config, paths: RuntimePaths, *, dry_run: bool = False) -> No
     dsh_package = f"@deepseek-ai/dsh@{config.string('dsh.version', DEFAULT_VERSION)}"
     plugins = managed_plugins(config, paths)
     packages = [dsh_package] + [
-        f"{plugin.package}@{plugin.version}"
-        for plugin in plugins
-        if plugin.enabled
+        f"{plugin.package}@{plugin.version}" for plugin in plugins if plugin.enabled
     ]
     if dry_run:
         print(f"npm install {' '.join(packages)} -> {target}")
@@ -229,8 +227,7 @@ def install(config: Config, paths: RuntimePaths, *, dry_run: bool = False) -> No
                 f"{plugin.package}@{plugin.version}"
                 for plugin in plugins
                 if plugin.enabled
-                and _installed_package_version(target, plugin.package)
-                != plugin.version
+                and _installed_package_version(target, plugin.package) != plugin.version
             ]
             if missing:
                 _allow_install_scripts(target)
@@ -563,7 +560,7 @@ def ensure_tailscale_serve(port: int) -> None:
             capture_output=True,
             text=True,
         )
-    except Exception as error:
+    except (subprocess.SubprocessError, OSError) as error:
         print(f"Warning: failed to configure tailscale serve: {error}", file=sys.stderr)
 
 
@@ -608,11 +605,7 @@ def run(config: Config, paths: RuntimePaths, *, dry_run: bool = False) -> None:
             short_host,
             f"{short_host}:443",
             f"{short_host}:{port}",
-            *[
-                address
-                for address in identity["addresses"]
-                if ":" not in address
-            ],
+            *[address for address in identity["addresses"] if ":" not in address],
             *[
                 f"{address}:443"
                 for address in identity["addresses"]
