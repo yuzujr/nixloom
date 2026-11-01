@@ -498,13 +498,7 @@ def tailnet_enabled() -> bool:
 
 
 def bind_host() -> str:
-    if not tailnet_enabled():
-        return "127.0.0.1"
-    addresses = tailnet_identity()["addresses"]
-    host = next((address for address in addresses if ":" not in address), "")
-    if not host:
-        raise ConfigError("Tailscale has no IPv4 address for the DSH web server")
-    return host
+    return "0.0.0.0" if tailnet_enabled() else "127.0.0.1"
 
 
 def tailnet_identity() -> dict[str, Any]:
