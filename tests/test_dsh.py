@@ -54,6 +54,7 @@ class DshTests(unittest.TestCase):
             "authenticatedUrl(baseUrl) {\n\t\tconst url = new URL(baseUrl);\n}\n"
         )
         (app / "node_modules/dsh-image-gen").mkdir()
+        (app / "node_modules/dsh-plugin-mobile-gateway").mkdir()
         profile = self.paths.state / ".dsh/profiles/web"
         profile.mkdir(parents=True)
         (profile / "package.json").write_text(
@@ -236,7 +237,7 @@ class DshTests(unittest.TestCase):
     def test_missing_installation_is_actionable_and_does_not_download(self) -> None:
         with (
             patch("nixloom.dsh.subprocess.run") as run,
-            self.assertRaisesRegex(ConfigError, "Home Manager activation"),
+            self.assertRaisesRegex(ConfigError, "start NixLoom to install it"),
         ):
             dsh.prepare(self.config, self.paths)
         run.assert_not_called()
