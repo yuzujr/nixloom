@@ -166,6 +166,12 @@ def install(config: Config, paths: RuntimePaths, *, dry_run: bool = False) -> No
 
 def managed_settings(config: Config) -> list[dict[str, Any]]:
     port = config.integer("ports.llama", minimum=1)
+    host = "127.0.0.1"
+    if tailnet_enabled():
+        addresses = tailnet_identity()["addresses"]
+        host = next((address for address in addresses if ":" not in address), "")
+        if not host:
+            raise ConfigError("Tailscale has no IPv4 address for the DSH web server")
     provider = {
         "displayName": "NixLoom",
         "apiKeyEnv": "NIXLOOM_LOCAL_API_KEY",
@@ -192,7 +198,7 @@ def managed_settings(config: Config) -> list[dict[str, Any]]:
         {
             "id": "webserver",
             "config": {
-                "host": "0.0.0.0" if tailnet_enabled() else "127.0.0.1",
+                "host": host,
                 "port": config.integer("ports.dsh", 3080, minimum=1),
             },
         },
