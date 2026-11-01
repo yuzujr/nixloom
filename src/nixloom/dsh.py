@@ -158,7 +158,7 @@ def managed_plugins(config: Config) -> list[ManagedPlugin]:
             settings={
                 "gatewayMode": "persistent",
                 "requireAuth": True,
-                "adminLoopbackOnly": True,
+                "adminLoopbackOnly": not tailnet_enabled(),
                 "lanEnabled": False,
             },
         ),
