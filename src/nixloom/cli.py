@@ -7,6 +7,7 @@ import json
 import os
 import shutil
 import subprocess
+import ssl
 import sys
 import time
 import urllib.error
@@ -119,7 +120,14 @@ def _probe(
     timeout: float = 3,
 ) -> str:
     try:
-        with urllib.request.urlopen(url, timeout=timeout) as response:
+        context = (
+            ssl._create_unverified_context()
+            if url.startswith("https://")
+            else None
+        )
+        with urllib.request.urlopen(
+            url, timeout=timeout, context=context
+        ) as response:
             return "ok" if response.status in accepted else f"HTTP {response.status}"
     except urllib.error.HTTPError as error:
         return "ok" if error.code in accepted else f"HTTP {error.code}"
@@ -138,11 +146,12 @@ def _service_specs(config: Config) -> list[ServiceSpec]:
     ]
     if _unit_installed("dsh"):
         port = config.integer("ports.dsh", 3080, minimum=1)
+        scheme = "https" if dsh.tailnet_enabled() else "http"
         specs.append(
             ServiceSpec(
                 "dsh",
                 UNIT_NAMES["dsh"],
-                f"http://127.0.0.1:{port}/",
+                f"{scheme}://127.0.0.1:{port}/",
             )
         )
     if _unit_installed("sillytavern"):
@@ -259,7 +268,7 @@ def _warm_model(config: Config) -> None:
 
 def _display_url(report: ServiceReport, config: Config) -> str:
     if report.spec.name == "dsh":
-        return f"http://127.0.0.1:{config.integer('ports.dsh', 3080)}/"
+        return dsh.service_url(config)
     return report.spec.url.removesuffix("/health")
 
 
