@@ -155,7 +155,55 @@ def _snapshot_sqlite(source: Path, target: Path) -> None:
         ):
             original.backup(snapshot)
     except sqlite3.Error:
-        shutil.copy2(source, target)
+        try:
+            shutil.copy2(source, target)
+        except FileNotFoundError:
+            target.unlink(missing_ok=True)
+
+
+def _copytree_snapshot(
+    source: Path, target: Path, *, skip_node_modules: bool = False
+) -> None:
+    """Copy a changing tree, ignoring entries that vanish during the copy."""
+    try:
+        source.lstat()
+    except FileNotFoundError:
+        return
+    if not source.is_dir() or source.is_symlink():
+        return
+    target.mkdir(parents=True, exist_ok=True)
+    try:
+        with os.scandir(source) as directory:
+            entries = list(directory)
+    except FileNotFoundError:
+        shutil.rmtree(target, ignore_errors=True)
+        return
+
+    for entry in entries:
+        if skip_node_modules and entry.name == "node_modules":
+            continue
+        source_entry = source / entry.name
+        target_entry = target / entry.name
+        try:
+            if entry.is_symlink():
+                os.symlink(os.readlink(source_entry), target_entry)
+            elif entry.is_dir(follow_symlinks=False):
+                _copytree_snapshot(
+                    source_entry,
+                    target_entry,
+                    skip_node_modules=skip_node_modules,
+                )
+            elif entry.is_file(follow_symlinks=False):
+                shutil.copy2(source_entry, target_entry, follow_symlinks=False)
+        except FileNotFoundError:
+            if target_entry.is_symlink() or target_entry.is_file():
+                target_entry.unlink(missing_ok=True)
+            elif target_entry.is_dir():
+                shutil.rmtree(target_entry, ignore_errors=True)
+    try:
+        shutil.copystat(source, target, follow_symlinks=False)
+    except FileNotFoundError:
+        pass
 
 
 def create_backup(config: Config, paths: RuntimePaths, destination: Path) -> Path:
@@ -186,22 +234,15 @@ def create_backup(config: Config, paths: RuntimePaths, destination: Path) -> Pat
                 if not source.exists():
                     continue
                 target_root = staged_state if root == paths.state else staged_data
-                shutil.copytree(
+                _copytree_snapshot(
                     source,
                     target_root / relative,
-                    symlinks=True,
-                    ignore=shutil.ignore_patterns("node_modules")
-                    if relative == Path(".dsh")
-                    else None,
+                    skip_node_modules=relative == Path(".dsh"),
                 )
         if custom_workspace:
             source = Path(custom_workspace).expanduser()
             if source.exists():
-                shutil.copytree(
-                    source,
-                    staged_data / "dsh/workspace",
-                    symlinks=True,
-                )
+                _copytree_snapshot(source, staged_data / "dsh/workspace")
         for database in staged_state.rglob("*.db"):
             source = paths.state / database.relative_to(staged_state)
             if source.is_file():
