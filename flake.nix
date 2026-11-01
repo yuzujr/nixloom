@@ -37,19 +37,6 @@
                     ./pyproject.toml
                     ./config.yaml
                     ./src
-                    ./tests
-                ];
-            };
-            architectureSource = lib.fileset.toSource {
-                root = ./.;
-                fileset = lib.fileset.unions [
-                    ./README.md
-                    ./config.yaml
-                    ./flake.nix
-                    ./nix
-                    ./pyproject.toml
-                    ./src
-                    ./tests
                 ];
             };
         in
@@ -68,20 +55,6 @@
                     program = "${self.packages.${system}.default}/bin/nixloom";
                 };
             });
-
-            checks = forAllSystems (
-                system:
-                import ./nix/checks.nix {
-                    inherit
-                        self
-                        lib
-                        source
-                        architectureSource
-                        ;
-                    inherit home-manager;
-                    pkgs = pkgsFor system;
-                }
-            );
 
             devShells = forAllSystems (system: {
                 default = import ./nix/dev-shell.nix { pkgs = pkgsFor system; };

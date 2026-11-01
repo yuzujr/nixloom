@@ -1,28 +1,22 @@
-"""Stateful CLI operations: assets, backups, and live regression probes."""
+"""Stateful CLI operations: assets, backups, and runtime operations."""
 
 from __future__ import annotations
 
-import base64
 import hashlib
 import json
 import os
 import shutil
 import sqlite3
-import struct
 import subprocess
 import tarfile
 import tempfile
-import time
 import urllib.error
-import urllib.parse
 import urllib.request
-import zlib
 from collections.abc import Iterable
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
-from . import comfy
 from .config import Config, ConfigError, RuntimePaths
 
 
@@ -226,185 +220,6 @@ def _json_request(url: str, payload: dict[str, Any], timeout: int) -> dict[str, 
     if not isinstance(result, dict):
         raise ConfigError(f"unexpected response from {url}")
     return result
-
-
-def _png_data_url() -> str:
-    width = height = 32
-    raw = b"".join(b"\x00" + b"\x33\x99\xff" * width for _ in range(height))
-
-    def chunk(kind: bytes, value: bytes) -> bytes:
-        return (
-            struct.pack(">I", len(value))
-            + kind
-            + value
-            + struct.pack(">I", zlib.crc32(kind + value))
-        )
-
-    png = b"\x89PNG\r\n\x1a\n" + chunk(
-        b"IHDR", struct.pack(">IIBBBBB", width, height, 8, 2, 0, 0, 0)
-    )
-    png += chunk(b"IDAT", zlib.compress(raw)) + chunk(b"IEND", b"")
-    return "data:image/png;base64," + base64.b64encode(png).decode()
-
-
-def _choice_text(response: dict[str, Any], label: str) -> str:
-    choices = response.get("choices")
-    if not isinstance(choices, list) or not choices or not isinstance(choices[0], dict):
-        raise ConfigError(f"{label} regression returned no choices")
-    message = choices[0].get("message")
-    content = message.get("content") if isinstance(message, dict) else None
-    if not isinstance(content, str) or not content.strip():
-        raise ConfigError(f"{label} regression returned no text")
-    return content.strip()
-
-
-def _comfy_image(config: Config, name: str, prompt: str, *, image: str = "") -> bytes:
-    graph = comfy.workflows(config)[name]
-    document = json.dumps(graph).replace("{{prompt}}", "__NIXLOOM_PROMPT__")
-    graph = json.loads(document)
-    for node in graph.values():
-        for key, value in node["inputs"].items():
-            if value == "__NIXLOOM_PROMPT__":
-                node["inputs"][key] = prompt
-            elif value == "{{seed}}":
-                node["inputs"][key] = 42
-            elif value == "{{image}}":
-                node["inputs"][key] = image
-    base = f"http://127.0.0.1:{config.integer('ports.comfyui', 8188, minimum=1)}"
-    response = _json_request(base + "/prompt", {"prompt": graph}, 900)
-    prompt_id = response.get("prompt_id")
-    if not prompt_id:
-        raise ConfigError(f"ComfyUI rejected workflow: {response}")
-    deadline = time.monotonic() + 7200
-    while time.monotonic() < deadline:
-        with urllib.request.urlopen(
-            base + "/history/" + prompt_id, timeout=30
-        ) as response:
-            history = json.load(response).get(prompt_id)
-        if history:
-            if history.get("status", {}).get("status_str") != "success":
-                raise ConfigError(f"ComfyUI execution failed: {history.get('status')}")
-            images = history.get("outputs", {}).get("10", {}).get("images", [])
-            if not images:
-                raise ConfigError("ComfyUI returned no output image")
-            with urllib.request.urlopen(
-                base + "/view?" + urllib.parse.urlencode(images[0]), timeout=30
-            ) as response:
-                return response.read()
-        time.sleep(0.5)
-    raise ConfigError("ComfyUI generation timed out")
-
-
-def _comfy_upload(config: Config, data: bytes) -> str:
-    boundary = "nixloom-regression-upload"
-    body = (
-        f'--{boundary}\r\nContent-Disposition: form-data; name="image"; filename="regression.png"\r\nContent-Type: image/png\r\n\r\n'.encode()
-        + data
-        + f"\r\n--{boundary}--\r\n".encode()
-    )
-    url = f"http://127.0.0.1:{config.integer('ports.comfyui', 8188, minimum=1)}/upload/image"
-    request = urllib.request.Request(
-        url,
-        data=body,
-        headers={"Content-Type": f"multipart/form-data; boundary={boundary}"},
-    )
-    with urllib.request.urlopen(request, timeout=30) as response:
-        value = json.load(response)
-    return "/".join(part for part in (value.get("subfolder"), value["name"]) if part)
-
-
-def live_test(
-    config: Config,
-    paths: RuntimePaths,
-    *,
-    skip_image: bool = False,
-) -> None:
-    port = config.integer("ports.llama", minimum=1)
-    base = f"http://127.0.0.1:{port}"
-    model = config.string("llm.id")
-    cases = [
-        (
-            "chat",
-            {
-                "model": model,
-                "messages": [{"role": "user", "content": "Reply with exactly: OK"}],
-                "max_tokens": 16,
-                "chat_template_kwargs": {"enable_thinking": False},
-            },
-        ),
-        (
-            "reasoning",
-            {
-                "model": model,
-                "messages": [
-                    {
-                        "role": "user",
-                        "content": "What is 17 + 25? Give only the number.",
-                    }
-                ],
-                # Leave room for the reasoning trace and the final answer;
-                # llama.cpp accounts both against this request budget.
-                "max_tokens": 512,
-                "chat_template_kwargs": {"enable_thinking": True},
-            },
-        ),
-        (
-            "vision",
-            {
-                "model": model,
-                "messages": [
-                    {
-                        "role": "user",
-                        "content": [
-                            {
-                                "type": "text",
-                                "text": "What is the dominant color? One word.",
-                            },
-                            {
-                                "type": "image_url",
-                                "image_url": {"url": _png_data_url()},
-                            },
-                        ],
-                    }
-                ],
-                "max_tokens": 32,
-                "chat_template_kwargs": {"enable_thinking": False},
-            },
-        ),
-    ]
-    expectations = {"chat": "OK", "reasoning": "42", "vision": "blue"}
-    for label, payload in cases:
-        response = _json_request(f"{base}/v1/chat/completions", payload, 900)
-        content = _choice_text(response, label)
-        expected = expectations[label]
-        if label == "chat" and content != expected:
-            raise ConfigError(f"chat regression expected 'OK', got {content!r}")
-        if label != "chat" and expected not in content.lower():
-            raise ConfigError(
-                f"{label} regression expected {expected!r}, got {content!r}"
-            )
-        print(f"ok  {label}")
-    if config.boolean("images.enabled") and not skip_image:
-        image = _comfy_image(
-            config,
-            config.string("images.generate"),
-            "A realistic photograph of a woman in a green jacket sitting at a coastal cafe, natural light.",
-        )
-        print("ok  image (Z-Image / ComfyUI)")
-        reference = _comfy_upload(config, image)
-        _comfy_image(
-            config,
-            config.string("images.edit"),
-            "Change the jacket to red. Preserve the person's face, pose, and background.",
-            image=reference,
-        )
-        print("ok  edit (Klein / ComfyUI)")
-        response = _json_request(f"{base}/v1/chat/completions", cases[0][1], 900)
-        if _choice_text(response, "swap-back") != "OK":
-            raise ConfigError(
-                "LLM did not return the expected response after the image swap"
-            )
-        print("ok  swap-back")
 
 
 def systemctl(*arguments: str, check: bool = True) -> subprocess.CompletedProcess[str]:

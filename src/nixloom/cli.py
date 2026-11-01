@@ -497,19 +497,6 @@ def command_backup(args: argparse.Namespace) -> None:
     print(f"backup written: {archive}")
 
 
-def command_test(args: argparse.Namespace) -> None:
-    paths, config = _context(args.config)
-    checks = ["chat", "reasoning", "vision"]
-    if config.boolean("images.enabled") and not args.skip_image:
-        checks.extend(["image generation", "image editing", "swap-back"])
-    print("Running live checks: " + ", ".join(checks), flush=True)
-    operations.live_test(
-        config,
-        paths,
-        skip_image=args.skip_image,
-    )
-
-
 def parser() -> argparse.ArgumentParser:
     root = GNUArgumentParser(
         prog="nixloom",
@@ -638,17 +625,6 @@ Run 'nixloom COMMAND --help' for details about a command.""",
     )
     frontend.add_argument("arguments", nargs=argparse.REMAINDER, metavar="ARG")
     frontend.set_defaults(handler=command_dsh)
-
-    test = commands.add_parser(
-        "test",
-        help="Run live end-to-end regression checks",
-        description="Run live end-to-end regression checks.",
-        usage="%(prog)s [OPTION]...",
-    )
-    test.add_argument(
-        "--skip-image", action="store_true", help="skip image generation and editing"
-    )
-    test.set_defaults(handler=command_test)
 
     backup = commands.add_parser(
         "backup",

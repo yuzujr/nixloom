@@ -40,8 +40,7 @@ other clients ─ OpenAI / sdcpp / A1111 APIs ──┘     └── sd-server 
   the primary integrations; its A1111 API remains available for compatibility.
 - Model switching is transparent: an image request unloads the LLM, starts the
   image runtime, and the next chat request restores the LLM.
-- The runtime is Python. Shell launchers and duplicated test harnesses are not
-  part of the package.
+- The runtime is Python; shell launchers are not part of the package.
 - No network-overlay policy is embedded in the project. Bind addresses belong
   to application configuration.
 
@@ -243,10 +242,6 @@ The key is passed only in the server process environment, never written into
 the plugin profile or Nix store. DSH's original `web_search` tool and HTTP fetch
 provider stay in use.
 
-`nixloom test` is the single useful live regression suite. It verifies exact
-chat/reasoning/vision results, generates an image, edits that image with Klein,
-and swaps back to the LLM. Use `--skip-image` to omit image tests.
-
 `nixloom backup` temporarily stops the stack and archives only user-owned
 configuration plus DSH and SillyTavern state. Models, caches and DSH's
 reinstallable `node_modules` directories are
@@ -256,9 +251,6 @@ excluded.
 
 ```bash
 nix develop
-python -m unittest discover -s tests -v
-ruff check src tests
-nix flake check
 ```
 
 ## License

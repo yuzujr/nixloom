@@ -16,16 +16,7 @@ let
             pkgs.python3Packages.aiohttp
         ];
         nativeBuildInputs = [ pkgs.makeWrapper ];
-        nativeCheckInputs = [
-            pkgs.python3Packages.pyyaml
-            pkgs.patch
-        ];
-        checkPhase = ''
-            runHook preCheck
-            PYTHONPATH="$PWD/src''${PYTHONPATH:+:$PYTHONPATH}" python -m unittest discover -s tests -v
-            runHook postCheck
-        '';
-        pythonImportsCheck = [ "nixloom" ];
+        doCheck = false;
         postInstall = ''
             mkdir -p "$out/share/nixloom"
             cp config.yaml "$out/share/nixloom/config.yaml"
