@@ -6,11 +6,13 @@ import asyncio
 import contextlib
 import ipaddress
 import json
+import os
 import signal
 import socket
 import subprocess
 import sys
 import urllib.parse
+from pathlib import Path
 from typing import Any
 
 from aiohttp import ClientError, ClientSession, ClientTimeout, WSMsgType, web
@@ -31,8 +33,16 @@ HOP_HEADERS = frozenset(
 
 
 class Scheduler:
-    def __init__(self, session: ClientSession, chat: str, images: str):
+    def __init__(
+        self,
+        session: ClientSession,
+        chat: str,
+        images: str,
+        sleep_state: Path | None = None,
+    ):
         self.session, self.chat, self.images = session, chat, images
+        self.sleep_state = sleep_state
+        self.image_loaded = False
         self.lock = asyncio.Lock()
         self.jobs: set[asyncio.Task] = set()
         self.failure: str | None = None
@@ -42,14 +52,53 @@ class Scheduler:
             response.raise_for_status()
             return await response.json(content_type=None)
 
+    def _read_sleep_state(self) -> tuple[int, str] | None:
+        if self.sleep_state is None or not self.sleep_state.is_file():
+            return None
+        try:
+            parts = self.sleep_state.read_text().strip().split()
+            if len(parts) != 2:
+                return None
+            pid = int(parts[0])
+            os.kill(pid, 0)
+            return pid, parts[1]
+        except (OSError, ValueError):
+            return None
+
+    def running_models(self, model_id: str) -> list[dict[str, str]]:
+        current = self._read_sleep_state()
+        if current is None or not model_id:
+            return []
+        return [{"model": model_id, "state": current[1]}]
+
+    async def _sleep_chat(self) -> None:
+        current = self._read_sleep_state()
+        if current is None or current[1] == "sleeping":
+            return
+        pid, _ = current
+        os.kill(pid, signal.SIGUSR1)
+        for step in range(600):
+            await asyncio.sleep(0.05)
+            current = self._read_sleep_state()
+            if current is None or current[0] != pid or current[1] == "sleeping":
+                return
+            if step == 40:
+                with contextlib.suppress(OSError):
+                    os.kill(pid, signal.SIGUSR1)
+        raise ConfigError("llama-server did not enter sleep within 30s")
+
     async def begin_image(self) -> None:
         await self.lock.acquire()
         try:
             if self.failure:
                 raise ConfigError(self.failure)
-            async with self.session.get(self.chat + "/unload") as response:
-                response.raise_for_status()
-                await response.read()
+            if self.sleep_state is not None:
+                await self._sleep_chat()
+            else:
+                async with self.session.get(self.chat + "/unload") as response:
+                    response.raise_for_status()
+                    await response.read()
+            self.image_loaded = True
         except BaseException:
             self.lock.release()
             raise
@@ -90,7 +139,9 @@ class Scheduler:
             # This synchronous endpoint runs only while the queue is idle. The
             # stock /free route schedules unloading later and cannot acknowledge
             # that the GPU is actually free before llama.cpp starts loading.
-            await self.json("POST", self.images + "/nixloom/unload")
+            if self.sleep_state is None or self.image_loaded:
+                await self.json("POST", self.images + "/nixloom/unload")
+                self.image_loaded = False
         except BaseException:
             self.lock.release()
             raise
@@ -144,7 +195,11 @@ async def relay(
 
 
 def applications(
-    session: ClientSession, scheduler: Scheduler, *, enabled: bool = True
+    session: ClientSession,
+    scheduler: Scheduler,
+    *,
+    enabled: bool = True,
+    model_id: str = "",
 ) -> tuple[web.Application, web.Application]:
     @web.middleware
     async def private_access(request: web.Request, handler: Any) -> web.StreamResponse:
@@ -187,6 +242,8 @@ def applications(
             return web.json_response({"error": str(error)}, status=503)
 
     async def chat(request: web.Request) -> web.StreamResponse:
+        if request.method == "GET" and request.path == "/running":
+            return web.json_response({"running": scheduler.running_models(model_id)})
         gpu = request.method == "POST" and request.path not in {"/unload", "/health"}
         if gpu and enabled:
             await scheduler.begin_chat()
@@ -240,10 +297,17 @@ def applications(
 
 
 async def serve(config: Config, paths: RuntimePaths) -> None:
-    swap_command, document = runtime.swap_command(config, paths)
+    llama_port = config.llama_backend_port()
+    llama_cmd = runtime.llama_command(config, paths, host="127.0.0.1", port=llama_port)
+    runtime.check_assets(llama_cmd, config, paths)
     paths.cache.mkdir(parents=True, exist_ok=True)
-    (paths.cache / "llama-swap.yaml").write_text(document)
-    children = [await asyncio.create_subprocess_exec(*swap_command)]
+    sleep_state = runtime.sleep_state_file(paths)
+    sleep_state.unlink(missing_ok=True)
+    children = [
+        await asyncio.create_subprocess_exec(
+            *llama_cmd, env=runtime.llama_environment(paths)
+        )
+    ]
     runners: list[web.AppRunner] = []
     enabled = config.boolean("images.enabled")
     try:
@@ -252,14 +316,14 @@ async def serve(config: Config, paths: RuntimePaths) -> None:
             children.append(
                 await asyncio.create_subprocess_exec(*comfy.command(config, paths))
             )
-        chat_base = f"http://127.0.0.1:{config.integer('ports.swap', 8187, minimum=1)}"
+        chat_base = f"http://127.0.0.1:{llama_port}"
         image_base = (
             f"http://127.0.0.1:{config.integer('ports.comfy_backend', 8189, minimum=1)}"
         )
         async with ClientSession(
             timeout=ClientTimeout(total=None, sock_connect=30), auto_decompress=True
         ) as session:
-            scheduler = Scheduler(session, chat_base, image_base)
+            scheduler = Scheduler(session, chat_base, image_base, sleep_state)
             if enabled:
                 for attempt in range(120):
                     try:
@@ -274,7 +338,12 @@ async def serve(config: Config, paths: RuntimePaths) -> None:
                                 "ComfyUI failed to start; see nixloom logs runtime"
                             )
                         await asyncio.sleep(1)
-            apps = applications(session, scheduler, enabled=enabled)
+            apps = applications(
+                session,
+                scheduler,
+                enabled=enabled,
+                model_id=config.string("llm.id"),
+            )
             for app, port, host in (
                 (apps[0], config.integer("ports.llama", minimum=1), "127.0.0.1"),
                 (

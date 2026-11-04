@@ -4,9 +4,8 @@ from __future__ import annotations
 
 import os
 import shlex
-from typing import Any
-
-import yaml
+import subprocess
+from pathlib import Path
 
 from .config import Config, ConfigError, RuntimePaths
 
@@ -108,33 +107,13 @@ def llama_command(
             "--reasoning-preserve"
             if config.boolean("llm.reasoning_preserve")
             else "--no-reasoning-preserve",
+            "--sleep-idle-seconds",
+            "31536000",
+            "--cache-ram",
+            "-1",
         ]
     )
     return command
-
-
-def swap_document(config: Config, paths: RuntimePaths) -> dict[str, Any]:
-    models: dict[str, Any] = {
-        config.string("llm.id"): {
-            "cmd": "nixloom __service llama --port ${PORT}",
-            "checkEndpoint": "/health",
-        }
-    }
-    return {"healthCheckTimeout": 7200, "logLevel": "info", "models": models}
-
-
-def swap_command(config: Config, paths: RuntimePaths) -> tuple[list[str], str]:
-    target = paths.cache / "llama-swap.yaml"
-    command = [
-        "llama-swap",
-        "--config",
-        str(target),
-        "--listen",
-        f"127.0.0.1:{config.integer('ports.swap', 8187, minimum=1)}",
-        "--watch-config",
-    ]
-    document = yaml.safe_dump(swap_document(config, paths), sort_keys=False)
-    return command, document
 
 
 def check_assets(command: list[str], config: Config, paths: RuntimePaths) -> None:
@@ -150,7 +129,49 @@ def check_assets(command: list[str], config: Config, paths: RuntimePaths) -> Non
         )
 
 
-def execute(command: list[str]) -> None:
+def sleep_state_file(paths: RuntimePaths) -> Path:
+    return paths.cache / "llama-sleep.state"
+
+
+def ensure_sleep_hook(paths: RuntimePaths) -> Path:
+    if paths.share:
+        packaged = paths.share / "libllama_sleep.so"
+        if packaged.is_file():
+            return packaged
+    source = Path(__file__).with_name("llama_sleep.c")
+    target = paths.cache / "libllama_sleep.so"
+    paths.cache.mkdir(parents=True, exist_ok=True)
+    if not target.is_file() or target.stat().st_mtime < source.stat().st_mtime:
+        subprocess.run(
+            [
+                "cc",
+                "-shared",
+                "-fPIC",
+                "-O2",
+                str(source),
+                "-o",
+                str(target),
+                "-ldl",
+            ],
+            check=True,
+        )
+    return target
+
+
+def llama_environment(paths: RuntimePaths) -> dict[str, str]:
+    hook = ensure_sleep_hook(paths)
+    state = sleep_state_file(paths)
+    state.parent.mkdir(parents=True, exist_ok=True)
+    env = dict(os.environ)
+    env["NIXLOOM_SLEEP_STATE_FILE"] = str(state)
+    preload = env.get("LD_PRELOAD", "")
+    env["LD_PRELOAD"] = f"{hook}:{preload}" if preload else str(hook)
+    return env
+
+
+def execute(command: list[str], paths: RuntimePaths | None = None) -> None:
+    if paths is not None and command[:1] == ["llama-server"]:
+        os.environ.update(llama_environment(paths))
     os.execvp(command[0], command)
 
 

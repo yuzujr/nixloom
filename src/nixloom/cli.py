@@ -207,8 +207,8 @@ def _running_models(config: Config) -> list[str]:
 
 
 def _configured_model_ready(config: Config) -> bool:
-    expected = f"{config.string('llm.id')} (ready)"
-    return expected in _running_models(config)
+    prefix = f"{config.string('llm.id')} ("
+    return any(item.startswith(prefix) for item in _running_models(config))
 
 
 def _wait_for_endpoint(spec: ServiceSpec, *, timeout: int) -> None:
@@ -237,24 +237,6 @@ def _wait_for_endpoint(spec: ServiceSpec, *, timeout: int) -> None:
         f"{spec.name} did not become healthy within {timeout}s; "
         f"inspect `nixloom logs {spec.name}`"
     )
-
-
-def _warm_model(config: Config) -> None:
-    model = config.string("llm.id")
-    port = config.integer("ports.llama", minimum=1)
-    print(f"  {model:<12} loading", end="", flush=True)
-    started = time.monotonic()
-    operations._json_request(
-        f"http://127.0.0.1:{port}/v1/chat/completions",
-        {
-            "model": model,
-            "messages": [{"role": "user", "content": "hi"}],
-            "max_tokens": 1,
-            "chat_template_kwargs": {"enable_thinking": False},
-        },
-        900,
-    )
-    print(f" → loaded ({time.monotonic() - started:.1f}s)", flush=True)
 
 
 def _display_url(report: ServiceReport, config: Config) -> str:
@@ -300,8 +282,7 @@ def command_start(args: argparse.Namespace) -> int:
         # Starting an already-active target does not retry a failed Wanted unit.
         # Explicitly start selected units to repair a partially failed stack.
         operations.systemctl("start", *(spec.unit for spec in specs))
-        _wait_for_endpoint(specs[0], timeout=120)
-        _warm_model(config)
+        _wait_for_endpoint(specs[0], timeout=900)
         for spec in specs[1:]:
             _wait_for_endpoint(spec, timeout=60)
         reports = _collect_reports(config)
@@ -419,8 +400,9 @@ def command_config(args: argparse.Namespace) -> None:
         print(f"Created {target}")
         return
     config = Config.load(paths)
-    llama = runtime.llama_command(config, paths)
-    swap, document = runtime.swap_command(config, paths)
+    llama = runtime.llama_command(
+        config, paths, host="127.0.0.1", port=config.llama_backend_port()
+    )
     if "sillytavern" in config.value:
         sillytavern.command(config)
     if "dsh" in config.value:
@@ -429,17 +411,16 @@ def command_config(args: argparse.Namespace) -> None:
         print(runtime.render_command(llama))
         if config.boolean("images.enabled"):
             print(runtime.render_command(comfy.command(config, paths)))
-        print(document.rstrip())
-        print(runtime.render_command(swap))
     print("Config and generated launch commands are valid.")
 
 
 def command_service(args: argparse.Namespace) -> None:
     paths, config = _context(args.config)
     if args.service_name == "runtime":
-        command, document = runtime.swap_command(config, paths)
+        command = runtime.llama_command(
+            config, paths, host="127.0.0.1", port=config.llama_backend_port()
+        )
         if args.dry_run:
-            print(document.rstrip())
             print(runtime.render_command(command))
             return
         from . import gateway
@@ -451,7 +432,7 @@ def command_service(args: argparse.Namespace) -> None:
             print(runtime.render_command(command))
             return
         runtime.check_assets(command, config, paths)
-        runtime.execute(command)
+        runtime.execute(command, paths)
     elif args.service_name == "comfyui":
         comfy.run(config, paths, dry_run=args.dry_run)
     elif args.service_name == "sillytavern":

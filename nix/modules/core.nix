@@ -46,7 +46,6 @@ let
       lib.makeBinPath (
         [
           cfg.package
-          cfg.swapPackage
           cfg.llamaPackage
         ]
         ++ lib.optional cfg.images.enable cfg.imagePackage
@@ -99,11 +98,6 @@ in
         else
           pinned.comfyui-cuda;
       description = "ComfyUI package with the selected PyTorch backend.";
-    };
-    swapPackage = lib.mkOption {
-      type = lib.types.package;
-      default = pinned.llama-swap;
-      description = "Pinned llama-swap package.";
     };
     stateDir = lib.mkOption {
       type = lib.types.str;
@@ -210,7 +204,7 @@ in
 
     systemd.user.services.nixloom-runtime = {
       Unit = {
-        Description = "NixLoom model swap runtime";
+        Description = "NixLoom model runtime";
         PartOf = [ "nixloom.target" ];
         X-SwitchMethod = "keep-old";
       };

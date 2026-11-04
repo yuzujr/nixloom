@@ -1,8 +1,8 @@
 ports:
   llama: 8080
+  llama_backend: 8187
   dsh: 3080
   sillytavern: 8000
-  swap: 8187
   comfyui: 8188
   comfy_backend: 8189
 llm:

@@ -20,6 +20,7 @@ let
         postInstall = ''
             mkdir -p "$out/share/nixloom"
             cp config.yaml "$out/share/nixloom/config.yaml"
+            "$CC" -shared -fPIC -O2 src/nixloom/llama_sleep.c -o "$out/share/nixloom/libllama_sleep.so" -ldl
         '';
         postFixup = ''
             wrapProgram "$out/bin/nixloom" \
@@ -35,7 +36,7 @@ in
 {
     default = nixloom;
     inherit nixloom;
-    inherit (pkgs) sillytavern llama-swap;
+    inherit (pkgs) sillytavern;
     llama-cpu = pkgs.llama-cpp;
     llama-cuda = llamaCuda;
     llama-vulkan = pkgs.llama-cpp-vulkan;

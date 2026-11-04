@@ -137,16 +137,23 @@ class Config:
             raise ConfigError(f"{key} must be true or false")
         return value
 
+    def llama_backend_port(self) -> int:
+        fallback = self.integer("ports.swap", 8187, minimum=1)
+        return self.integer("ports.llama_backend", fallback, minimum=1)
+
     def validate(self) -> None:
         ports: list[int] = []
         configured_ports = self.get("ports", required=True)
         if not isinstance(configured_ports, dict):
             raise ConfigError("ports must be a mapping")
+        backend_port = self.llama_backend_port()
+        if backend_port > 65535:
+            raise ConfigError("ports.llama_backend must be <= 65535")
+        ports.append(backend_port)
         for name, default in {
             "llama": 8080,
             "dsh": 3080,
             "sillytavern": 8000,
-            "swap": 8187,
             "comfyui": 8188,
             "comfy_backend": 8189,
         }.items():
