@@ -52,10 +52,18 @@ Prompt Standards for local diffusion models:
                 name: 'nixloom:video-workflow',
                 order: ctx.systemPrompt.getSectionOrder('TOOLS_SDK'),
                 text: `本机视频工具使用 MiniMax H3，通过 generate_video 调用。
-用户要视频时才使用：纯文字生成传 mode="text-to-video"；让图片动起来或基于图片生成传 mode="image-to-video"，并省略 source_attachment_id 以使用最近一条消息中的唯一图片。
-指定旧图片时传它的 source_attachment_id；指定工作区文件时传 source_path。一次只处理一张图。
-当前设置为 ${settings.size}、${settings.frames} 帧（约 ${Math.round(settings.frames / 24)} 秒）；生成可能需要数分钟，并独占 GPU，完成后会返回可下载的视频文件。
-不要把生图/修图请求路由到视频工具。`,
+- 仅在用户明确要求生成视频或让图片动起来时使用。纯文字生成传 mode="text-to-video"；基于图片生成传 mode="image-to-video"（默认省略 source_attachment_id 自动使用最近一张图片）。
+- 指定较早对话图片传 source_attachment_id，工作区文件传 source_path。一次只处理一张图。
+- 当前设置为 ${settings.size}、${settings.frames} 帧（约 ${Math.round(settings.frames / 24)} 秒），生成需独占 GPU 数分钟。
+- 严禁将普通的生图或修图请求路由至 generate_video。
+
+Prompt Standards for MiniMax H3 Video Generation:
+- Language: ALWAYS translate and expand the user's intent into professional English cinematic prose.
+- Motion & Camera Trajectory: Always explicitly define camera movement (e.g. "smooth 360-degree orbital pan", "slow cinematic push-in / dolly forward", "fluid tracking shot", "steady handheld camera with subtle organic drift") to prevent static outputs.
+- Temporal Dynamics: Describe motion progression across time: subject action, speed, and environmental dynamics (e.g. moving lighting reflections, particle flow, cloth flutter).
+- Mode Rules:
+  * mode="text-to-video": Specify [Subject & Staging] + [Subject Action] + [Camera Trajectory] + [Lighting & 24fps Commercial Style].
+  * mode="image-to-video": Focus 90% on MOTION and CAMERA PATH. Do NOT redesign or extensively re-describe the reference image's appearance; keep the subject and environment consistent while executing the specified motion and camera trajectory.`,
             });
         }
     }
