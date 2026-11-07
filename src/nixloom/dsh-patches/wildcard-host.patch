@@ -19,3 +19,17 @@
  }
  /**
  * Whether a bind address names the local loopback authority.
+@@ -611,11 +610,11 @@
+ 		};
+ 		res.on("close", onClose);
+ 		try {
+-			await writeResponse(res, await resource(new Request(target, {
++			await writeResponse(res, await resource(Object.assign(new Request(target, {
+ 				method: req.method,
+ 				headers,
+ 				signal: abort.signal
+-			})), req.method === "HEAD", abort.signal);
++			}), { socket: req.socket })), req.method === "HEAD", abort.signal);
+ 			if (!abort.signal.aborted) {
+ 				ended = true;
+ 				res.end();

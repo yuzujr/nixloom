@@ -2,5 +2,5 @@
   "upstream": "0ebcca7583e082716f79b0b55bc1749d48269cc8db2989b043b321b57abd3684",
   "patched": "b700bec3e735920169a576820e65f9051c705f3fb3c3dde88abbc50aac9324a5",
   "webserver_upstream": "81a85ab619d8977e090e23124fd4e0e135c944c99b8b199eadea615532f2b2e3",
-  "webserver_patched": "0ef82fa2a6b459c09089d332bb2fcf61e9c26c20b5e385633dce8f092113c298"
+  "webserver_patched": "3b8ffd73bc15faef34075a268b3953ceaf3caffa1b0e8474bf92f254d7b267d9"
 }

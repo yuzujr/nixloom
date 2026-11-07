@@ -3,7 +3,7 @@ import { isIP } from 'node:net';
 const loopback = address => address === '127.0.0.1' || address === '::1' || address === '::ffff:127.0.0.1';
 
 // The socket address is authenticated by Tailscale, unlike browser-supplied headers.
-export function allowsManagedAccess(request, authority) {
+export function allowsManagedAccess(request, authority = request?.headers?.get?.('host') ?? request?.headers?.host) {
     if (process.env.NIXLOOM_DSH_LOCAL_ACCESS !== '1' || !authority) return false;
     let url;
     try { url = new URL(`http://${authority}`); } catch { return false; }
