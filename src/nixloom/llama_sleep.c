@@ -44,6 +44,18 @@ static void *g_current_cache = NULL;
 
 typedef bool (*prompt_save_fn)(const void *, void *);
 typedef void (*list_clear_fn)(void *);
+typedef size_t (*cache_n_tokens_fn)(const void *);
+typedef size_t (*tokens_common_prefix_fn)(const void *, const void *);
+
+struct llama_tensor_buft_override_ {
+    const char *pattern;
+    void *buft;
+};
+
+struct llama_model_params_prefix {
+    void *devices;
+    const struct llama_tensor_buft_override_ *tensor_buft_overrides;
+};
 
 static void list_init_empty(struct cxx11_list_head *h) {
     h->next = h;
@@ -51,16 +63,47 @@ static void list_init_empty(struct cxx11_list_head *h) {
     h->size = 0;
 }
 
-static void list_move_nodes(struct cxx11_list_head *dst, struct cxx11_list_head *src) {
+static void list_splice_back(struct cxx11_list_head *dst, struct cxx11_list_head *src) {
     if (src->next == src) {
         return;
     }
-    dst->next = src->next;
-    dst->prev = src->prev;
-    dst->size = src->size;
-    dst->next->prev = dst;
-    dst->prev->next = dst;
+    struct cxx11_list_head *first = src->next;
+    struct cxx11_list_head *last = src->prev;
+    struct cxx11_list_head *at = dst->prev;
+    at->next = first;
+    first->prev = at;
+    last->next = dst;
+    dst->prev = last;
+    dst->size += src->size;
     list_init_empty(src);
+}
+
+static size_t get_cache_n_tokens(const void *prompt_cache) {
+    if (!prompt_cache) {
+        return 0;
+    }
+    static cache_n_tokens_fn real_n_tokens = NULL;
+    if (!real_n_tokens) {
+        real_n_tokens = (cache_n_tokens_fn)dlsym(
+            RTLD_NEXT,
+            "_ZNK19server_prompt_cache8n_tokensEv"
+        );
+    }
+    return real_n_tokens ? real_n_tokens(prompt_cache) : 0;
+}
+
+static size_t get_tokens_size(const void *tokens) {
+    if (!tokens) {
+        return 0;
+    }
+    static tokens_common_prefix_fn real_common_prefix = NULL;
+    if (!real_common_prefix) {
+        real_common_prefix = (tokens_common_prefix_fn)dlsym(
+            RTLD_NEXT,
+            "_ZNK13server_tokens17get_common_prefixERKS_"
+        );
+    }
+    return real_common_prefix ? real_common_prefix(tokens, tokens) : 0;
 }
 
 static void clear_prompt_cache_list(void *prompt_cache) {
@@ -95,7 +138,7 @@ void _ZNSt7__cxx1110_List_baseI25server_prompt_cache_stateSaIS1_EE8_M_clearEv(vo
             real_list_clear(&g_stashed_cache);
             list_init_empty(&g_stashed_cache);
         }
-        list_move_nodes(&g_stashed_cache, h);
+        list_splice_back(&g_stashed_cache, h);
         return;
     }
     if (real_list_clear) {
@@ -120,9 +163,14 @@ static void save_slots_to_prompt_cache(void) {
     if (!g_last_slot || !g_current_cache) {
         return;
     }
-    clear_prompt_cache_list(g_current_cache);
     bool saved = _ZNK11server_slot11prompt_saveER19server_prompt_cache(g_last_slot, g_current_cache);
-    fprintf(stderr, "[nixloom-sleep] saved slot to prompt_cache (saved=%d)\n", (int)saved);
+    size_t cached_tokens = get_cache_n_tokens(g_current_cache);
+    fprintf(
+        stderr,
+        "[nixloom-sleep] saved slot to prompt_cache (saved=%d, cached_tokens=%zu)\n",
+        (int)saved,
+        cached_tokens
+    );
 }
 
 static void write_state(const char *state) {
@@ -215,6 +263,65 @@ bool _ZN19server_context_impl10load_modelER13common_params(void *self, void *par
     return ok;
 }
 
+void _Z17common_fit_paramsPKcP18llama_model_paramsP20llama_context_paramsPfP32llama_model_tensor_buft_overridePmjPK22common_fit_extra_model14ggml_log_level(
+    const char *path,
+    void *mparams,
+    void *cparams,
+    float *tensor_split,
+    void *tensor_buft_overrides,
+    size_t *margins,
+    unsigned int n_ctx_min,
+    const void *extra_models,
+    int log_level
+) {
+    static void (*real_fit_params)(
+        const char *,
+        void *,
+        void *,
+        float *,
+        void *,
+        size_t *,
+        unsigned int,
+        const void *,
+        int
+    ) = NULL;
+    if (!real_fit_params) {
+        real_fit_params = dlsym(
+            RTLD_NEXT,
+            "_Z17common_fit_paramsPKcP18llama_model_paramsP20llama_context_paramsPfP32llama_model_tensor_buft_overridePmjPK22common_fit_extra_model14ggml_log_level"
+        );
+    }
+    struct llama_tensor_buft_override_ *overrides = (struct llama_tensor_buft_override_ *)tensor_buft_overrides;
+    struct llama_model_params_prefix *mp = (struct llama_model_params_prefix *)mparams;
+    struct llama_tensor_buft_override_ saved0 = { NULL, NULL };
+    struct llama_tensor_buft_override_ saved1 = { NULL, NULL };
+    if (overrides && overrides[0].pattern != NULL) {
+        saved0 = overrides[0];
+        saved1 = overrides[1];
+        overrides[0].pattern = NULL;
+        overrides[0].buft = NULL;
+    }
+    if (mp) {
+        mp->tensor_buft_overrides = NULL;
+    }
+    real_fit_params(
+        path,
+        mparams,
+        cparams,
+        tensor_split,
+        tensor_buft_overrides,
+        margins,
+        n_ctx_min,
+        extra_models,
+        log_level
+    );
+    if (mp && mp->tensor_buft_overrides == NULL && overrides && saved0.pattern != NULL) {
+        overrides[0] = saved0;
+        overrides[1] = saved1;
+        mp->tensor_buft_overrides = overrides;
+    }
+}
+
 bool _ZN19server_prompt_cache4loadER13server_promptRK13server_tokensP13llama_contextS6_i(
     void *self,
     void *prompt,
@@ -232,11 +339,31 @@ bool _ZN19server_prompt_cache4loadER13server_promptRK13server_tokensP13llama_con
     }
     g_current_cache = self;
     if (g_stashed_cache.next != &g_stashed_cache) {
-        clear_prompt_cache_list(self);
-        list_move_nodes((struct cxx11_list_head *)self, &g_stashed_cache);
+        list_splice_back((struct cxx11_list_head *)self, &g_stashed_cache);
     }
+    size_t before_tokens = get_cache_n_tokens(self);
     bool ok = real_load(self, prompt, tokens, ctx, ctx_dft, slot_id);
-    fprintf(stderr, "[nixloom-sleep] prompt_cache::load finished (ok=%d), releasing RAM cache\n", (int)ok);
-    clear_prompt_cache_list(self);
+    size_t after_tokens = get_cache_n_tokens(self);
+    size_t new_tokens = get_tokens_size(tokens);
+    if (after_tokens == 0 || (after_tokens < before_tokens && new_tokens >= after_tokens)) {
+        fprintf(
+            stderr,
+            "[nixloom-sleep] prompt_cache::load finished (ok=%d, new_tokens=%zu, cached_tokens=%zu->%zu), releasing RAM cache\n",
+            (int)ok,
+            new_tokens,
+            before_tokens,
+            after_tokens
+        );
+        clear_prompt_cache_list(self);
+    } else {
+        fprintf(
+            stderr,
+            "[nixloom-sleep] prompt_cache::load finished (ok=%d, new_tokens=%zu, cached_tokens=%zu->%zu), keeping RAM cache\n",
+            (int)ok,
+            new_tokens,
+            before_tokens,
+            after_tokens
+        );
+    }
     return ok;
 }
