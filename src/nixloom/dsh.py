@@ -164,8 +164,10 @@ def managed_plugins(
                 "gatewayMode": "persistent",
                 "requireAuth": True,
                 "adminLoopbackOnly": True,
-                "lanEnabled": False,
-                "publicUrlFile": str(paths.state / ".dsh/mobile-gateway-public-url"),
+                "lanEnabled": True,
+                "lanHost": "0.0.0.0",
+                "lanPort": 3081,
+                "publicUrlFile": "",
             },
         ),
         ManagedPlugin(
@@ -553,18 +555,6 @@ def _write_json(target: Path, value: Any) -> None:
         Path(temporary).unlink(missing_ok=True)
 
 
-def ensure_tailscale_serve(port: int) -> None:
-    try:
-        subprocess.run(
-            ["tailscale", "serve", "--bg", "--https", "443", str(port)],
-            check=True,
-            capture_output=True,
-            text=True,
-        )
-    except (subprocess.SubprocessError, OSError) as error:
-        print(f"Warning: failed to configure tailscale serve: {error}", file=sys.stderr)
-
-
 def run(config: Config, paths: RuntimePaths, *, dry_run: bool = False) -> None:
     args = command(
         config,
@@ -589,46 +579,30 @@ def run(config: Config, paths: RuntimePaths, *, dry_run: bool = False) -> None:
     os.chdir(workspace(config, paths))
     values = environment(config, paths)
     values["NIXLOOM_DSH_LOCAL_ACCESS"] = "1"
-    public_url_file = paths.state / ".dsh/mobile-gateway-public-url"
+    (paths.state / ".dsh/mobile-gateway-public-url").unlink(missing_ok=True)
     if tailnet_enabled():
         identity = tailnet_identity()
         port = config.integer("ports.dsh", 3080)
-        ensure_tailscale_serve(port)
-        public_url_file.parent.mkdir(parents=True, exist_ok=True)
-        public_url_file.write_text(
-            f"wss://{identity['hostname']}/ws/mobile\n", encoding="utf-8"
-        )
         short_host = identity["hostname"].split(".", 1)[0]
         hosts = [
             identity["hostname"],
-            f"{identity['hostname']}:443",
             f"{identity['hostname']}:{port}",
             short_host,
-            f"{short_host}:443",
             f"{short_host}:{port}",
             *[address for address in identity["addresses"] if ":" not in address],
-            *[
-                f"{address}:443"
-                for address in identity["addresses"]
-                if ":" not in address
-            ],
             *[
                 f"{address}:{port}"
                 for address in identity["addresses"]
                 if ":" not in address
             ],
             "127.0.0.1",
-            "127.0.0.1:443",
             f"127.0.0.1:{port}",
             "localhost",
-            "localhost:443",
             f"localhost:{port}",
         ]
         values["NIXLOOM_DSH_TAILNET_HOSTS"] = json.dumps(hosts)
         values["NIXLOOM_DSH_TAILNET_PEERS"] = json.dumps(identity["peers"])
         args.extend(["--trusted-host", *hosts])
-    else:
-        public_url_file.unlink(missing_ok=True)
     os.execvpe(args[0], args, values)
 
 
