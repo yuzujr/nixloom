@@ -13,7 +13,7 @@ llm:
   max_tokens: 8192
   gpu_layers: auto
   n_cpu_moe: auto
-  fit_target: 512
+  fit_target: 1024
   mmap: false
   threads: 8
   threads_batch: 8
