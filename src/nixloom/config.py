@@ -312,9 +312,8 @@ class Config:
         if "sillytavern" in self.value:
             self.string("sillytavern.preset")
         if "dsh" in self.value:
-            version = self.string("dsh.version", "0.2.0-rc.2")
-            if not re.fullmatch(r"\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?", version):
-                raise ConfigError("dsh.version must be an exact npm version")
+            # dsh.version is pinned internally in nixloom to match validated patches;
+            # any version in config is accepted/ignored for backward compatibility.
             workspace = self.string("dsh.workspace", "")
             if workspace and not Path(workspace).is_absolute():
                 raise ConfigError("dsh.workspace must be an absolute path")

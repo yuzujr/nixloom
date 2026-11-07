@@ -120,9 +120,9 @@ launcher enables local access for its managed service; the upstream
 Host/Origin checks still protect API requests. Direct DSH invocations retain
 upstream authentication. SillyTavern is also loopback-only and needs no login.
 
-Startup downloads packages only when the configured version or a managed plugin
-is missing; subsequent starts reuse them. Change `dsh.version` in YAML and
-update the NixOS configuration to upgrade. Installation needs network access
+Startup downloads packages only when the pinned version or a managed plugin
+is missing; subsequent starts reuse them. DSH version is pinned and validated
+by NixLoom patches. Installation needs network access
 when a new package is first added; a failed download fails startup instead of
 leaving a partial npm release.
 

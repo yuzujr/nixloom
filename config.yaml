@@ -63,7 +63,6 @@ video:
   frames: 124
   steps: 20
 dsh:
-  version: 0.2.2-rc.1
   workspace: ''
 sillytavern:
   preset: Qwen 3.6 35B RP

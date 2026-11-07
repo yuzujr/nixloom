@@ -19,7 +19,8 @@ import yaml
 from . import dsh_compat
 from .config import Config, ConfigError, RuntimePaths
 
-DEFAULT_VERSION = "0.2.2-rc.1"
+PINNED_VERSION = "0.2.2-rc.1"
+DEFAULT_VERSION = PINNED_VERSION
 
 
 @dataclass(frozen=True)
@@ -35,7 +36,7 @@ class ManagedPlugin:
 
 
 def app_directory(config: Config, paths: RuntimePaths) -> Path:
-    return paths.cache / "dsh/releases" / config.string("dsh.version", DEFAULT_VERSION)
+    return paths.cache / "dsh/releases" / PINNED_VERSION
 
 
 def workspace(config: Config, paths: RuntimePaths) -> Path:
@@ -186,7 +187,7 @@ def managed_plugins(
 
 def install(config: Config, paths: RuntimePaths, *, dry_run: bool = False) -> None:
     target = app_directory(config, paths)
-    dsh_package = f"@deepseek-ai/dsh@{config.string('dsh.version', DEFAULT_VERSION)}"
+    dsh_package = f"@deepseek-ai/dsh@{PINNED_VERSION}"
     plugins = managed_plugins(config, paths)
     packages = [dsh_package] + [
         f"{plugin.package}@{plugin.version}" for plugin in plugins if plugin.enabled
@@ -473,7 +474,7 @@ def prepare(config: Config, paths: RuntimePaths) -> None:
 
 def _profile_fingerprint(config: Config, paths: RuntimePaths) -> str:
     managed = {
-        "version": config.string("dsh.version", DEFAULT_VERSION),
+        "version": PINNED_VERSION,
         "workspace": str(workspace(config, paths)),
         "settings": managed_settings(config, paths),
         "images": _image_settings(config) if config.boolean("images.enabled") else None,
