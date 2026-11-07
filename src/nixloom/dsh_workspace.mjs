@@ -7,9 +7,10 @@ export async function apply(ctx) {
     const path = process.env.NIXLOOM_DSH_WORKSPACE;
     if (!path) throw new Error('NixLoom workspace is not configured.');
     // Presets create terminal fibers lazily; configure each through Cordis.
-    ctx.on("internal/config", function (_raw, next) {
+    ctx.on("internal/config", function (fiber, next) {
         const config = next();
-        if (this.runtime?.name !== "terminal-bash" || config?.shellDialect === "pwsh") return config;
+        const runtimeName = fiber?.runtime?.name || this?.runtime?.name;
+        if (runtimeName !== "terminal-bash" || config?.shellDialect === "pwsh") return config;
         return { ...config, shellPath: process.env.NIXLOOM_DSH_BASH || config?.shellPath };
     });
     const workflows = process.env.NIXLOOM_DSH_IMAGE_WORKFLOWS;
