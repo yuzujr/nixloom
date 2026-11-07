@@ -19,8 +19,12 @@ export async function apply(ctx) {
             name: 'nixloom:image-workflows',
             order: ctx.systemPrompt.getSectionOrder('TOOLS_SDK'),
             text: `Local image tools use ComfyUI on local GPU.
+CRITICAL EXECUTION RULE:
+- NEVER run shell commands, bash, or file-reading tools (cat, find, ls, grep) to inspect DSH settings, config files, or providers. ComfyUI is already the configured local engine.
+- Call generate_image / edit_image directly and immediately on the first turn without prior checks.
+
 Workflow rules:
-- For generate_image and generate_images: pass workflow=${JSON.stringify(generate)}.
+- For generate_image and generate_images: pass workflow=${JSON.stringify(generate)}. Omit provider/model overrides.
 - For edit_image: always pass workflow=${JSON.stringify(edit)} and exactly one reference image (via source_attachment_id or default inline image). Omit other provider/model overrides.
 
 Prompt Standards for local diffusion models:

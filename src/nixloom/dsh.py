@@ -19,7 +19,7 @@ import yaml
 from . import dsh_compat
 from .config import Config, ConfigError, RuntimePaths
 
-DEFAULT_VERSION = "0.2.0-rc.2"
+DEFAULT_VERSION = "0.2.2-rc.1"
 
 
 @dataclass(frozen=True)
@@ -157,7 +157,7 @@ def managed_plugins(
     return [
         ManagedPlugin(
             package="dsh-plugin-mobile-gateway",
-            version="0.11.1",
+            version="0.12.0",
             settings_id="mobile-gateway",
             settings={
                 "gatewayMode": "persistent",
@@ -169,7 +169,7 @@ def managed_plugins(
         ),
         ManagedPlugin(
             package="dsh-image-gen",
-            version="0.8.5",
+            version="0.10.3",
             enabled=config.boolean("images.enabled"),
             patch_id="image-gen",
             patch_settings=(
