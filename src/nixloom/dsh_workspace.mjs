@@ -18,7 +18,22 @@ export async function apply(ctx) {
         ctx.systemPrompt.section({
             name: 'nixloom:image-workflows',
             order: ctx.systemPrompt.getSectionOrder('TOOLS_SDK'),
-            text: `Local image tools use ComfyUI. For generate_image and generate_images, pass workflow=${JSON.stringify(generate)}. For edit_image, always pass workflow=${JSON.stringify(edit)} and exactly one reference image. Omit other provider overrides. For editing, describe the requested change and explicitly preserve the reference person's identity and all unchanged details.`,
+            text: `Local image tools use ComfyUI on local GPU.
+Workflow rules:
+- For generate_image and generate_images: pass workflow=${JSON.stringify(generate)}.
+- For edit_image: always pass workflow=${JSON.stringify(edit)} and exactly one reference image (via source_attachment_id or default inline image). Omit other provider/model overrides.
+
+Prompt Standards for local diffusion models:
+1. Text-to-Image Generation (generate_image):
+- Format: Write a descriptive English natural language paragraph. Do NOT output comma-separated tag soup.
+- Subject Layout & Geometry: For manufactured products, electronics, or complex anatomy, explicitly specify spatial arrangements and part topology (e.g. for controllers, specify asymmetric thumbstick layout with left stick above D-pad and right stick below face buttons) to prevent topological hallucinations.
+- Text & Typography: Always enclose any rendered text in quotes (e.g. text reading "SHOP NOW"). Specify exact font style, color, case, and placement (e.g. "bold sans-serif white uppercase letters centered on the pill button"). Explicitly state "clean typography, no extra letters, no typos".
+- Lighting & Composition: Specify camera perspective, angle, framing, and clean studio lighting.
+
+2. Image Editing (edit_image):
+- Preservation Anchor: Explicitly instruct the model to preserve all unmentioned elements: "Keep the subject, background, lighting, color palette, and overall composition strictly unchanged."
+- Surgical Modification: Concretely describe only the target delta (e.g. "Modify only the text on the bottom cyan button: replace existing text with exactly 'SHOP NOW' in crisp white bold uppercase letters; leave the button shape, color, and surrounding details untouched.").
+- Do not redesign or alter regions outside the user's explicit request.`,
         });
     }
     const video = process.env.NIXLOOM_DSH_VIDEO_WORKFLOWS;

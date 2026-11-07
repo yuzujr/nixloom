@@ -49,9 +49,9 @@ images:
       architecture: flux2
       task: edit
       model_file: flux-2-klein-4b-nvfp4.safetensors
-      text_encoder: qwen_3_4b_fp4_flux2.safetensors
+      text_encoder: qwen_3_4b_fp8_mixed.safetensors
       vae: flux2-vae.safetensors
-      steps: 4
+      steps: 8
       size: 1024x1024
 video:
   enabled: false
@@ -101,11 +101,6 @@ assets:
     url: https://huggingface.co/black-forest-labs/FLUX.2-klein-4b-nvfp4/resolve/1db2b2f776c24b76f1122e5f69ab1949fc620068/flux-2-klein-4b-nvfp4.safetensors
     size: 2460413488
     sha256: d8c5007b6a3bbbdfd38538bbcef5101a55dfde81894f58d2e3c8701cdef3542b
-  qwen_3_4b_fp4_flux2:
-    path: comfyui/models/text_encoders/qwen_3_4b_fp4_flux2.safetensors
-    url: https://huggingface.co/Comfy-Org/flux2-klein-4B/resolve/5f526678002e43af5551dadb73ce2e8c91b43afe/split_files/text_encoders/qwen_3_4b_fp4_flux2.safetensors
-    size: 3848213998
-    sha256: 3eab03a77adb0ee5304a4e677d5c10ac22f9049c1d7c894adca4f8bb39206ca8
   flux2-vae:
     path: comfyui/models/vae/flux2-vae.safetensors
     url: https://huggingface.co/Comfy-Org/flux2-klein-4B/resolve/5f526678002e43af5551dadb73ce2e8c91b43afe/split_files/vae/flux2-vae.safetensors

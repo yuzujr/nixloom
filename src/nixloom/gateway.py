@@ -142,6 +142,7 @@ class Scheduler:
             if self.sleep_state is None or self.image_loaded:
                 await self.json("POST", self.images + "/nixloom/unload")
                 self.image_loaded = False
+                await asyncio.sleep(0.05)
         except BaseException:
             self.lock.release()
             raise
