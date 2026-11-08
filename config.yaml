@@ -21,7 +21,7 @@ llm:
   cache_type_k: q8_0
   cache_type_v: q8_0
   mmproj_offload: false
-  image_tokens: 1024
+  image_tokens: 512
   reasoning_preserve: true
   sampling:
     temperature: 0.7

@@ -1,21 +1,25 @@
 # NixLoom
 
 NixLoom integrates local chat, image generation/editing, and video workflows.
-llama.cpp serves the text model through llama-swap; ComfyUI serves creative
-workflows. A single gateway schedules GPU access for every frontend.
+`llama-server` serves the multimodal text model with native sleep hooks; ComfyUI
+serves creative workflows. A single gateway schedules GPU access for every frontend.
 
 ```text
-DSH / SillyTavern ── chat ── NixLoom gateway :8080 ── llama-swap :8187 ── llama.cpp
+DSH / SillyTavern ── chat ── NixLoom gateway :8080 ── llama-server :8187 (LD_PRELOAD sleep hook)
 ComfyUI browser / DSH image and H3 video tools / SillyTavern
-                 └─ workflows ── gateway :8188 ── ComfyUI :8189
+                 └─ workflows ── gateway :8188 ── ComfyUI :8189 (/nixloom/unload)
 ```
 
-- Image requests unload the text model before ComfyUI executes the workflow.
-  Chat waits for the actual image/video queue to finish, unloads ComfyUI models,
-  then loads the text model. HTTP acceptance does not count as task completion.
-- Z-Image-Turbo generates photographs; FLUX.2 Klein edits a reference image.
-  Both use native NVFP4 kernels on supported Blackwell cards, with quantized
-  Qwen text encoders and tiled VAE decoding.
+- Image and video requests put `llama-server` into native sleep (via `SIGUSR1`
+  and `libllama_sleep.so`), saving the active KV/recurrent prompt cache to host
+  RAM before ComfyUI executes the workflow. Chat waits for the actual image/video
+  queue to finish, calls `/nixloom/unload` to thoroughly release ComfyUI models,
+  cast/prefetch buffers and CUDA caches, then wakes `llama-server` and restores
+  its prompt cache. HTTP acceptance does not count as task completion.
+- Z-Image-Turbo (INT8 convrot) generates photographs; FLUX.2 Klein (4B NVFP4)
+  edits a reference image. Both use native quantized kernels on supported
+  Blackwell cards, with an FP8 mixed-precision Qwen text encoder and tiled VAE
+  decoding.
 - When enabled, MiniMax H3 provides text-to-video and first-frame-to-video
   workflows, including audio, in both DSH and the ComfyUI browser.
 - Models, inputs, outputs and extensions live under the data directory;
@@ -28,18 +32,22 @@ ComfyUI browser / DSH image and H3 video tools / SillyTavern
 ## Architecture
 
 ```text
-DSH Web ──────── OpenAI chat + OpenAI Images ─┐
-                                              │
-SillyTavern ─── OpenAI chat + sdcpp source ───┼── llama-swap
-                                              │     ├── llama-server
-other clients ─ OpenAI / sdcpp / A1111 APIs ──┘     └── sd-server (on demand)
+DSH Web ──────── OpenAI chat (:8080) + ComfyUI workflows (:8188) ─┐
+                                                                  │
+SillyTavern ─── OpenAI chat (:8080) + ComfyUI workflows (:8188) ──┼── NixLoom gateway
+                                                                  │     ├── llama-server (:8187)
+ComfyUI UI ──── Browser workflows & WebSocket (:8188) ────────────┘     └── ComfyUI (:8189)
 ```
 
-- Text, per-request reasoning and vision share one llama.cpp process.
-- Image generation uses stable-diffusion.cpp. Its native/OpenAI interfaces are
-  the primary integrations; its A1111 API remains available for compatibility.
-- Model switching is transparent: an image request unloads the LLM, starts the
-  image runtime, and the next chat request restores the LLM.
+- Text, per-request reasoning and multimodal vision (`mmproj`) share one
+  `llama-server` process. Vision encoding runs on CPU (`mmproj_offload: false`)
+  with a bounded token budget (`image_tokens: 512`) so VRAM remains dedicated to
+  LLM layers and the KV cache.
+- Image and video generation use ComfyUI through the NixLoom scheduler gateway.
+- Model switching is transparent: a ComfyUI prompt request sleeps `llama-server`
+  while preserving the main conversation's prompt cache in RAM across short
+  tasks, and the next chat request unloads ComfyUI and wakes `llama-server` with
+  re-fitted device parameters.
 - The runtime is Python; shell launchers are not part of the package.
 - No network-overlay policy is embedded in the project. Bind addresses belong
   to application configuration.
@@ -136,44 +144,49 @@ another absolute directory; a working directory is not an access sandbox.
 `nixloom dsh plugin --profile web add <package>` runs DSH's plugin manager
 with the same environment as the service. Extra plugins remain user-managed.
 
-NixLoom synchronizes its local model route, context/output limits and Qwen
-thinking controls, preserving other providers and plugin settings. When images
-are enabled it installs `dsh-image-gen` 0.8.5 and configures its native ComfyUI
-provider with named `z-image` and `klein-edit` workflows. When video is enabled,
-the managed workspace plugin also registers `generate_video` for MiniMax H3
-text-to-video and first-frame-to-video. It submits through the NixLoom ComfyUI
-gateway, waits for the shared GPU scheduler to finish, and returns the video as a
-downloadable DSH file attachment. The same H3 graphs remain available in the
-ComfyUI browser. Image editing still depends on the capabilities of the selected
-SD backend.
+NixLoom synchronizes its local model route (`input: ["text", "image"]`),
+context/output limits and Qwen thinking controls, preserving other providers and
+plugin settings. DSH is internally pinned to `0.2.2-rc.1`. When images are
+enabled it installs `dsh-image-gen` `0.10.3`, configures its native ComfyUI
+provider with named `z-image` and `klein-edit` workflows, and injects local
+diffusion prompt and workflow-routing instructions into the DSH system prompt.
+Generated and edited images are saved to the workspace and returned as
+multimodal image attachments so the Agent can inspect outputs and chain follow-up
+edits or video generation. When video is enabled, the managed workspace plugin
+also registers `generate_video` for MiniMax H3 text-to-video and
+first-frame-to-video with standardized English cinematic prompt rules. It submits
+through the NixLoom ComfyUI gateway, waits for the shared GPU scheduler to
+finish, and returns the video as a downloadable DSH file attachment. The same H3
+graphs remain available in the ComfyUI browser.
 
-NixLoom also installs `dsh-plugin-mobile-gateway` 0.11.1 for the Whaleness
+NixLoom also installs `dsh-plugin-mobile-gateway` `0.12.0` for the Whaleness
 mobile client. The gateway starts in persistent mode with device authentication
-required; the separate LAN listener on port 3081 is disabled. Since NixLoom
-already makes DSH's port 3080 reachable through Tailscale, pair Whaleness once
-using `ws://<nixloom-host>:3080/ws/mobile`. Keep both devices on the same
-tailnet. The paired device credential is retained, so it reconnects when NixLoom
-starts; revoke the device in DSH's Mobile Devices panel to remove its access.
+required (`adminLoopbackOnly: true`) and enables the dedicated LAN/Tailnet
+listener on `0.0.0.0:3081`. Pair Whaleness over LAN or Tailscale using port
+`3081` (or `ws://<nixloom-host>:3080/ws/mobile` when Tailnet access is enabled
+on port 3080). The paired device credential is retained across restarts; revoke
+the device in DSH's Mobile Devices panel to remove its access.
 
 The launcher exposes Node internals through Node's own loader because the upstream
 native getter does not recognize Nix-built Node. Bash uses the native `shellPath`
 option; the workspace plugin uses `workspaceRegistry.initializeDefault`, preserving
 existing registrations. Neither needs a source patch.
 
-The remaining authentication change is an explicit unified diff under
-`src/nixloom/dsh-patches`, with SHA-256 checks before and after application. Home
-Manager applies it during installation and removes the previous inline patches.
-Startup checks the installed files and profile fingerprint, then executes DSH;
-it never patches packages, prepares profiles or installs dependencies. Changes to
-managed frontend settings require Home Manager activation again.
+The remaining authentication and wildcard-binding changes are explicit unified
+diffs (`managed-access.patch` and `wildcard-host.patch`) under
+`src/nixloom/dsh-patches`, with SHA-256 checks before and after application.
+`nixloom-dsh.service` runs a preparation step (`--prepare-only`) before launch
+to install missing packages, apply/verify patches and synchronize the profile,
+then verifies the profile fingerprint before executing DSH.
 
 ### Direct Tailnet HTTP access
 
 Enable `services.nixloom.dsh.tailnet.enable` and allow the configured DSH port
-(default 3080) only on `networking.firewall.interfaces.tailscale0.allowedTCPPorts`.
-DSH then uses the upstream Web server's explicit `0.0.0.0` configuration, so the
+(default 3080, plus 3081 if using the dedicated mobile gateway listener) only on
+`networking.firewall.interfaces.tailscale0.allowedTCPPorts`. DSH then uses the
+upstream Web server's explicit `0.0.0.0` configuration, so the
 interface-specific firewall rule is required. LAN interfaces must not allow that
-port. Tailscale Serve and Funnel are not involved.
+port unless intended. Tailscale Serve and Funnel are not involved.
 
 Open `http://<machine>.<tailnet>.ts.net:3080/` or the machine's Tailscale IPv4
 address. The managed access check compares the actual TCP peer address with
@@ -198,10 +211,10 @@ separate XDG directories:
 
 The important YAML sections are:
 
-- `llm`: model, vision projector, context, reasoning and sampling settings
+- `llm`: model, vision projector (`mmproj_file`, `mmproj_offload`, `image_tokens`), context, `fit_target`, reasoning and sampling settings
 - `images`: ComfyUI image profiles, generation/edit defaults, and VRAM reserve
 - `video`: optional MiniMax H3 weights, resolution, frame count and steps
-- `dsh`: pinned npm version and optional workspace
+- `dsh`: optional workspace path (DSH version is pinned internally to match validated patches)
 - `sillytavern`: managed preset
 - `credentials`: Tavily search API key and optional Civitai download token
 - `assets`: pinned downloadable files with exact sizes and SHA-256 hashes
