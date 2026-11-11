@@ -275,7 +275,11 @@ def command_start(args: argparse.Namespace) -> int:
             return 0
     action = "Restarting" if args.restart else "Starting"
     if any(spec.name == "dsh" for spec in specs):
-        dsh.require_installed(config, paths)
+        try:
+            dsh.require_installed(config, paths)
+        except ConfigError:
+            print("Installing and preparing DSH frontend...", flush=True)
+            dsh.install(config, paths)
     print(f"{action} NixLoom...", flush=True)
     try:
         operations.systemctl(verb, "nixloom.target")
