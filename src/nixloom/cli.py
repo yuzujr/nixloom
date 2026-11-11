@@ -630,46 +630,55 @@ Examples:
 
     models = commands.add_parser(
         "models",
-        help="Verify or download model assets",
-        description="Verify integrity or download pinned model assets defined in configuration.",
-        usage="%(prog)s ACTION [ASSET]...",
-        epilog="""Actions:
-  check, verify        Verify integrity (size & SHA256) of local assets
-  download, pull       Download missing or corrupted model assets
+        help="List, verify, or download model assets",
+        description="Inspect, verify integrity, or download model assets defined in configuration.",
+        usage="%(prog)s [list|check|pull] [OPTION]... [ASSET]...",
+        epilog="""Commands:
+  list                 List model assets, showing download status and sizes (default)
+  check, verify        Verify integrity (size and SHA-256 digest) of model files
+  pull, download       Download missing model files
 
-Arguments:
-  ASSET                Specific asset key defined under 'assets' in config.
-                       (e.g. qwen36_q4, z_image_turbo_nvfp4, flux-2-klein-4b-nvfp4)
-                       If omitted, all assets required by the active configuration
-                       (LLM, enabled image profiles, video) will be processed.
+Options:
+  -a, --all            When listing, show all assets defined in catalog instead of only active ones
 
 Examples:
-  nixloom models check                 # Verify all models active in current config
-  nixloom models download              # Download all missing models for active config
-  nixloom models pull z_image_turbo_nvfp4  # Download only the z-image NVFP4 checkpoint""",
+  nixloom models                       # List all models required by active config
+  nixloom models list -a               # List all catalog assets defined in config.yaml
+  nixloom models check                 # Verify integrity of active models
+  nixloom models pull                  # Download all missing models for active config
+  nixloom models pull z_image_turbo_nvfp4  # Download only a specific model""",
     )
     models.add_argument(
         "models_action",
-        choices=("check", "verify", "download", "pull"),
+        choices=("list", "check", "verify", "pull", "download"),
         nargs="?",
-        metavar="ACTION",
-        help="check, verify, download, or pull",
+        default="list",
+        metavar="COMMAND",
+        help="list (default), check (or verify), pull (or download)",
     )
     models.add_argument(
         "assets",
         nargs="*",
         metavar="ASSET",
-        help="asset name(s) from config (default: all active models)",
+        help="specific asset key(s) to check or pull (default: all active models)",
+    )
+    models.add_argument(
+        "-a",
+        "--all",
+        action="store_true",
+        help="for 'list', include inactive catalog assets",
     )
 
     def models_handler(args: argparse.Namespace) -> None:
-        if args.models_action is None:
-            models.print_help()
-            return
         paths, loaded = _context(args.config)
+        action_name = args.models_action
+        if action_name == "list":
+            operations.list_models(loaded, paths, all_assets=args.all)
+            return
+
         action = (
             operations.check_models
-            if args.models_action in ("check", "verify")
+            if action_name in ("check", "verify")
             else operations.download_models
         )
         raise SystemExit(0 if action(loaded, paths, args.assets) else 1)

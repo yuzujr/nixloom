@@ -94,6 +94,33 @@ def check_models(config: Config, paths: RuntimePaths, requested: Iterable[str]) 
     return passed
 
 
+def list_models(config: Config, paths: RuntimePaths, *, all_assets: bool = False) -> None:
+    catalog = config.get("assets", {})
+    assert isinstance(catalog, dict)
+    active_pairs = selected_assets(config, [])
+    active_names = {name for name, _ in active_pairs}
+
+    items = catalog.items() if all_assets else [(k, catalog[k]) for k in active_names if k in catalog]
+    if not items:
+        print("no models configured.")
+        return
+
+    name_w = max(len("ASSET"), *(len(k) for k, _ in items)) + 2
+    print(f"{'ASSET':<{name_w}} {'STATUS':<10} {'SIZE':<10} TARGET PATH")
+    print("-" * (name_w + 50))
+    for name, asset in items:
+        target = paths.data / asset["path"]
+        if target.is_file():
+            status = "present" if target.stat().st_size == asset["size"] else "corrupted"
+        else:
+            status = "missing"
+        active_prefix = "* " if (all_assets and name in active_names) else "  "
+        print(f"{active_prefix}{name:<{name_w - 2}} {status:<10} {human_size(asset['size']):<10} {asset['path']}")
+
+    if all_assets:
+        print("\n(*) Assets required by current configuration.")
+
+
 def _download(url: str, target: Path, token: str) -> None:
     headers: dict[str, str] = {}
     if token and url.startswith("https://civitai.com/"):
