@@ -4,12 +4,21 @@
     comfyui,
 }:
 let
-    base = pkgs.comfyui;
+    versions = import "${comfyui}/nix/versions.nix";
+    base = pkgs.comfyui.overrideAttrs (_old: {
+        version = versions.comfyui.version;
+        src = pkgs.fetchFromGitHub {
+            owner = "Comfy-Org";
+            repo = "ComfyUI";
+            rev = versions.comfyui.rev;
+            hash = versions.comfyui.hash;
+        };
+        doInstallCheck = false;
+    });
     upstream = import comfyui.inputs.nixpkgs {
         system = pkgs.stdenv.hostPlatform.system;
         config.allowUnfree = true;
     };
-    versions = import "${comfyui}/nix/versions.nix";
     nativeWheels = builtins.fromJSON (builtins.readFile ./python-wheels.json);
     # Keep the community pin and default architectures so CUDA cache entries match.
     # NVSHMEM is not cached at this pin; NVIDIA's wheel avoids compiling its tests.
@@ -146,6 +155,7 @@ let
     );
 in
 base.overrideAttrs (old: {
+    doInstallCheck = false;
     installPhase =
         lib.replaceStrings
             [ (lib.getExe base.pythonEnv) (toString base.pythonEnv) "--unset PYTHONPATH" ]

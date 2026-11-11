@@ -2,7 +2,7 @@
     description = "NixLoom: a modular local-AI runtime for NixOS";
 
     inputs.nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
-    inputs.comfyui.url = "github:utensils/comfyui-nix/58f91b001c99a97df46b7be8d58b08f01cb8f6ff";
+    inputs.comfyui.url = "github:utensils/comfyui-nix/e9c8a8de01fd5c88d27fb0f4759dbb418d9f4831";
     inputs.home-manager = {
         url = "github:nix-community/home-manager";
         inputs.nixpkgs.follows = "nixpkgs";
