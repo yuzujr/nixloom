@@ -562,7 +562,11 @@ Run 'nixloom COMMAND --help' for details about a command.""",
     status = commands.add_parser(
         "status",
         help="Show services, model state and URLs",
+        description="Show NixLoom systemd services status, running model, and Web UI URLs.",
         usage="%(prog)s [OPTION]...",
+        epilog="""Examples:
+  nixloom status                Show current service state and model
+  nixloom status --verbose      Include systemd active states and diagnostics""",
     )
     status.add_argument(
         "--verbose", action="store_true", help="include service diagnostics"
@@ -571,8 +575,12 @@ Run 'nixloom COMMAND --help' for details about a command.""",
     logs = commands.add_parser(
         "logs",
         help="Read one service or the combined journal",
-        description="Read one service or the combined NixLoom journal.",
+        description="Read one service or the combined NixLoom systemd journal.",
         usage="%(prog)s [OPTION]... [SERVICE]",
+        epilog="""Examples:
+  nixloom logs                  Show the last 100 log lines from all NixLoom services
+  nixloom logs dsh -f           Follow the DSH frontend logs in real time
+  nixloom logs runtime -n 50    Show the last 50 entries from the LLM/ComfyUI runtime""",
     )
     logs.add_argument(
         "service",
@@ -596,15 +604,23 @@ Run 'nixloom COMMAND --help' for details about a command.""",
     config = commands.add_parser(
         "config",
         help="Initialize or validate configuration",
-        description="Initialize or validate the NixLoom configuration.",
+        description="Initialize or validate the NixLoom configuration file.",
         usage="%(prog)s ACTION [OPTION]...",
+        epilog="""Actions:
+  check        Validate configuration syntax and inspect launch commands
+  init         Create a default configuration template if missing
+
+Examples:
+  nixloom config check          Validate config.yaml
+  nixloom config check --verbose Show full generated llama-server / comfyui commands
+  nixloom config init           Initialize default config.yaml""",
     )
     config.add_argument(
         "config_action",
         choices=("check", "init"),
         nargs="?",
         metavar="ACTION",
-        help="check or init",
+        help="check (validate syntax and plans) or init (scaffold default config)",
     )
     config.add_argument(
         "--verbose", action="store_true", help="show generated launch commands"
@@ -615,17 +631,36 @@ Run 'nixloom COMMAND --help' for details about a command.""",
     models = commands.add_parser(
         "models",
         help="Verify or download model assets",
-        description="Verify or download pinned model assets.",
+        description="Verify integrity or download pinned model assets defined in configuration.",
         usage="%(prog)s ACTION [ASSET]...",
+        epilog="""Actions:
+  check, verify        Verify integrity (size & SHA256) of local assets
+  download, pull       Download missing or corrupted model assets
+
+Arguments:
+  ASSET                Specific asset key defined under 'assets' in config.
+                       (e.g. qwen36_q4, z_image_turbo_nvfp4, flux-2-klein-4b-nvfp4)
+                       If omitted, all assets required by the active configuration
+                       (LLM, enabled image profiles, video) will be processed.
+
+Examples:
+  nixloom models check                 # Verify all models active in current config
+  nixloom models download              # Download all missing models for active config
+  nixloom models pull z_image_turbo_nvfp4  # Download only the z-image NVFP4 checkpoint""",
     )
     models.add_argument(
         "models_action",
-        choices=("check", "download"),
+        choices=("check", "verify", "download", "pull"),
         nargs="?",
         metavar="ACTION",
-        help="check or download",
+        help="check, verify, download, or pull",
     )
-    models.add_argument("assets", nargs="*", metavar="ASSET", help="asset name")
+    models.add_argument(
+        "assets",
+        nargs="*",
+        metavar="ASSET",
+        help="asset name(s) from config (default: all active models)",
+    )
 
     def models_handler(args: argparse.Namespace) -> None:
         if args.models_action is None:
@@ -634,7 +669,7 @@ Run 'nixloom COMMAND --help' for details about a command.""",
         paths, loaded = _context(args.config)
         action = (
             operations.check_models
-            if args.models_action == "check"
+            if args.models_action in ("check", "verify")
             else operations.download_models
         )
         raise SystemExit(0 if action(loaded, paths, args.assets) else 1)
@@ -644,19 +679,34 @@ Run 'nixloom COMMAND --help' for details about a command.""",
     frontend = commands.add_parser(
         "dsh",
         help="Invoke the managed DSH frontend",
+        description="Invoke the managed DSH (DeepShell) interactive terminal frontend.",
         usage="%(prog)s [ARG]...",
+        epilog="""Examples:
+  nixloom dsh                   Launch DSH interactive terminal
+  nixloom dsh --help            Show DSH frontend options""",
     )
-    frontend.add_argument("arguments", nargs=argparse.REMAINDER, metavar="ARG")
+    frontend.add_argument(
+        "arguments",
+        nargs=argparse.REMAINDER,
+        metavar="ARG",
+        help="arguments forwarded directly to the DSH executable",
+    )
     frontend.set_defaults(handler=command_dsh)
 
     backup = commands.add_parser(
         "backup",
         help="Back up or restore private application data",
         description=(
-            "Create a backup, or merge an archive into current data. "
-            "Restore keeps files absent from the archive."
+            "Create a consistent backup archive, or restore/merge an archive into "
+            "current user data (DSH, SillyTavern, ComfyUI state). "
+            "Restore replaces matching files and preserves current files absent from the archive."
         ),
         usage="%(prog)s [OPTION]... [DESTINATION] | restore ARCHIVE",
+        epilog="""Examples:
+  nixloom backup                        Create backup in ~/backups/nixloom/
+  nixloom backup /path/to/backup/dir    Create backup in custom directory
+  nixloom backup --dry-run              Show backup plan without stopping services
+  nixloom backup restore archive.tar.gz Restore from an existing backup archive""",
     )
     backup.add_argument(
         "destination",
