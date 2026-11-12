@@ -216,11 +216,21 @@ The important YAML sections are:
 - `video`: optional MiniMax H3 weights, resolution, frame count and steps
 - `dsh`: optional workspace path (DSH version is pinned internally to match validated patches)
 - `sillytavern`: managed preset
-- `credentials`: Tavily search API key and optional Civitai download token
-- `assets`: pinned downloadable files with exact sizes and SHA-256 hashes
+- `credentials`: Tavily search API key, optional Civitai download token and optional HuggingFace read token
+- `assets`: pinned downloadable files with exact sizes and SHA-256 hashes; `gated: true` marks licence-gated files
 
 Frontend selection and GPU backend do not live in YAML; those are Nix module
 decisions.
+
+Licence-gated assets (e.g. the official FLUX.2 Klein 9B NVFP4 weights) cannot be
+downloaded anonymously. `nixloom models pull` handles them in one of two ways:
+
+- set `credentials.huggingface_token` to a read token from a HuggingFace account
+  that has accepted the model licence, and NixLoom downloads and verifies the
+  file itself (the token is never sent to CDN redirect hosts); or
+- without a token it prints the repository page, the file name and the exact
+  target path. Download the file in a browser, move it to that path and run
+  `nixloom models pull` again to verify size and SHA-256.
 
 ## Commands
 

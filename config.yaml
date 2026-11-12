@@ -69,6 +69,7 @@ sillytavern:
 credentials:
   tavily_api_key: ''
   civitai_api_token: ''
+  huggingface_token: ''
 assets:
   qwen36_q4:
     path: models/llm/qwen36/Qwen3.6-35B-A3B-Uncensored-HauhauCS-Aggressive-Q4_K_M.gguf
@@ -95,16 +96,12 @@ assets:
     url: https://huggingface.co/Comfy-Org/z_image_turbo/resolve/6fc90a3b1b653e935a0d175e260736de25b84df5/split_files/vae/ae.safetensors
     size: 335304388
     sha256: afc8e28272cd15db3919bacdb6918ce9c1ed22e96cb12c4d5ed0fba823529e38
-  flux-2-klein-4b-nvfp4:
-    path: comfyui/models/diffusion_models/flux-2-klein-4b-nvfp4.safetensors
-    url: https://huggingface.co/black-forest-labs/FLUX.2-klein-4b-nvfp4/resolve/1db2b2f776c24b76f1122e5f69ab1949fc620068/flux-2-klein-4b-nvfp4.safetensors
-    size: 2460413488
-    sha256: d8c5007b6a3bbbdfd38538bbcef5101a55dfde81894f58d2e3c8701cdef3542b
   flux-2-klein-9b-nvfp4:
     path: comfyui/models/diffusion_models/flux-2-klein-9b-nvfp4.safetensors
-    url: https://huggingface.co/ApacheOne/FluxKlein9b-nvfp4_mixed/resolve/bd53de46d38e5b63827580e31ce2dc89ad278392/bl_Klein9b-nvfp4.safetensors
-    size: 5760949448
-    sha256: 8eaab306a73d307084dc4c3281a1a81098beddb4e8385c295d2cfe4e6d8a406f
+    url: https://huggingface.co/black-forest-labs/FLUX.2-klein-9b-nvfp4/resolve/e882f64f6aa086fcf8915a7763550e05af10ef13/flux-2-klein-9b-nvfp4.safetensors
+    gated: true
+    size: 5760960048
+    sha256: 5c72214496dd278f721a112e1bd1585fffed487bc0831c894bcbf30d12e9ee48
   qwen_3_8b_fp4mixed:
     path: comfyui/models/text_encoders/qwen_3_8b_fp4mixed.safetensors
     url: https://huggingface.co/Comfy-Org/Flux-2-Klein-9B/resolve/1138ce884c8e977cdacacbe779784fec4426bb3f/split_files/text_encoders/qwen_3_8b_fp4mixed.safetensors

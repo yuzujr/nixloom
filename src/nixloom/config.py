@@ -335,6 +335,9 @@ class Config:
             url = asset.get("url")
             if not isinstance(url, str) or not url.startswith(("https://", "http://")):
                 raise ConfigError(f"assets.{name}.url must be HTTP(S)")
+            gated = asset.get("gated", False)
+            if not isinstance(gated, bool):
+                raise ConfigError(f"assets.{name}.gated must be true or false")
             size = asset.get("size")
             digest = asset.get("sha256")
             if isinstance(size, bool) or not isinstance(size, int) or size < 1:

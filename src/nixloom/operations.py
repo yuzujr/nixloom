@@ -11,6 +11,7 @@ import subprocess
 import tarfile
 import tempfile
 import urllib.error
+import urllib.parse
 import urllib.request
 from collections.abc import Iterable
 from datetime import UTC, datetime
@@ -94,13 +95,19 @@ def check_models(config: Config, paths: RuntimePaths, requested: Iterable[str]) 
     return passed
 
 
-def list_models(config: Config, paths: RuntimePaths, *, all_assets: bool = False) -> None:
+def list_models(
+    config: Config, paths: RuntimePaths, *, all_assets: bool = False
+) -> None:
     catalog = config.get("assets", {})
     assert isinstance(catalog, dict)
     active_pairs = selected_assets(config, [])
     active_names = {name for name, _ in active_pairs}
 
-    items = catalog.items() if all_assets else [(k, catalog[k]) for k in active_names if k in catalog]
+    items = (
+        catalog.items()
+        if all_assets
+        else [(k, catalog[k]) for k in active_names if k in catalog]
+    )
     if not items:
         print("no models configured.")
         return
@@ -111,34 +118,81 @@ def list_models(config: Config, paths: RuntimePaths, *, all_assets: bool = False
     for name, asset in items:
         target = paths.data / asset["path"]
         if target.is_file():
-            status = "present" if target.stat().st_size == asset["size"] else "corrupted"
+            status = (
+                "present" if target.stat().st_size == asset["size"] else "corrupted"
+            )
         else:
             status = "missing"
         active_prefix = "* " if (all_assets and name in active_names) else "  "
-        print(f"{active_prefix}{name:<{name_w - 2}} {status:<10} {human_size(asset['size']):<10} {asset['path']}")
+        print(
+            f"{active_prefix}{name:<{name_w - 2}} {status:<10} {human_size(asset['size']):<10} {asset['path']}"
+        )
 
     if all_assets:
         print("\n(*) Assets required by current configuration.")
 
 
+class _DropAuthOnRedirect(urllib.request.HTTPRedirectHandler):
+    """Never forward a bearer token to a different host (CDN signed URLs)."""
+
+    def redirect_request(self, req, fp, code, msg, headers, newurl):  # type: ignore[no-untyped-def]
+        new = super().redirect_request(req, fp, code, msg, headers, newurl)
+        if (
+            new is not None
+            and urllib.parse.urlparse(newurl).netloc
+            != urllib.parse.urlparse(req.full_url).netloc
+        ):
+            new.remove_header("Authorization")
+        return new
+
+
+_OPENER = urllib.request.build_opener(_DropAuthOnRedirect)
+
+
+def _token_for(config: Config, url: str) -> str:
+    host = urllib.parse.urlparse(url).hostname or ""
+    if host == "civitai.com":
+        return config.string("credentials.civitai_api_token", "")
+    if host == "huggingface.co":
+        return config.string("credentials.huggingface_token", "")
+    return ""
+
+
 def _download(url: str, target: Path, token: str) -> None:
     headers: dict[str, str] = {}
-    if token and url.startswith("https://civitai.com/"):
+    if token:
         headers["Authorization"] = f"Bearer {token}"
     offset = target.stat().st_size if target.exists() else 0
     if offset:
         headers["Range"] = f"bytes={offset}-"
     request = urllib.request.Request(url, headers=headers)
-    with urllib.request.urlopen(request, timeout=60) as response:
+    with _OPENER.open(request, timeout=60) as response:
         append = offset > 0 and response.status == 206
         with target.open("ab" if append else "wb") as output:
             shutil.copyfileobj(response, output, length=8 * 1024 * 1024)
 
 
+def _repository_page(url: str) -> str:
+    parts = urllib.parse.urlparse(url).path.split("/")
+    return f"https://huggingface.co/{parts[1]}/{parts[2]}" if len(parts) > 2 else url
+
+
+def _manual_instructions(name: str, asset: dict[str, Any], target: Path) -> str:
+    return (
+        f"{name} requires a licence-gated download and cannot be fetched anonymously.\n"
+        f"  1. Open {_repository_page(asset['url'])}, sign in and accept the licence.\n"
+        f"  2. Download {Path(urllib.parse.urlparse(asset['url']).path).name}"
+        f" ({human_size(asset['size'])}).\n"
+        f"  3. Move it to {target}\n"
+        "  4. Run `nixloom models pull` again to verify it.\n"
+        "Or set credentials.huggingface_token (a read token from an account that "
+        "accepted the licence) to let NixLoom download it automatically."
+    )
+
+
 def download_models(
     config: Config, paths: RuntimePaths, requested: Iterable[str]
 ) -> bool:
-    token = config.string("credentials.civitai_api_token", "")
     passed = True
     for name, asset in selected_assets(config, requested):
         target = paths.data / asset["path"]
@@ -146,26 +200,45 @@ def download_models(
         if verify_asset(target, asset["size"], asset["sha256"]):
             print(f"verified {name:<20} {asset['path']}")
             continue
+        token = _token_for(config, asset["url"])
+        if asset.get("gated") and not token:
+            print(_manual_instructions(name, asset, target), file=os.sys.stderr)
+            passed = False
+            continue
         target.parent.mkdir(parents=True, exist_ok=True)
         partial = target.with_name(target.name + ".part")
-        if partial.exists() and partial.stat().st_size >= asset["size"]:
+        if partial.exists() and partial.stat().st_size > asset["size"]:
             partial.unlink()
         print(f"downloading {name:<17} {asset['path']} ({human_size(asset['size'])})")
         try:
-            _download(asset["url"], partial, token)
+            for attempt in range(5):
+                try:
+                    _download(asset["url"], partial, token)
+                except urllib.error.HTTPError as err:
+                    if err.code in (401, 403):
+                        raise ConfigError(
+                            _manual_instructions(name, asset, target)
+                            if asset.get("gated")
+                            else f"access denied ({err.code}) for {name}"
+                        ) from err
+                    raise
+                except (OSError, urllib.error.URLError) as err:
+                    if attempt == 4:
+                        raise
+                    have = partial.stat().st_size if partial.exists() else 0
+                    print(
+                        f"resuming {name} from {human_size(have)}: {err}",
+                        file=os.sys.stderr,
+                    )
+                    continue
+                if partial.exists() and partial.stat().st_size == asset["size"]:
+                    break
             if not verify_asset(partial, asset["size"], asset["sha256"]):
-                print(
-                    f"retrying {name} from the beginning after verification failure",
-                    file=os.sys.stderr,
-                )
                 partial.unlink(missing_ok=True)
-                _download(asset["url"], partial, token)
-            if not verify_asset(partial, asset["size"], asset["sha256"]):
                 raise ConfigError(f"asset failed size/SHA-256 verification: {name}")
             os.replace(partial, target)
             print(f"verified {name:<20} {asset['path']}")
         except (OSError, urllib.error.URLError, ConfigError) as error:
-            partial.unlink(missing_ok=True)
             print(f"download failed for {name}: {error}", file=os.sys.stderr)
             passed = False
     return passed
