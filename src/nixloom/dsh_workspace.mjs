@@ -26,19 +26,29 @@ CRITICAL EXECUTION RULE:
 
 Workflow rules:
 - For generate_image and generate_images: pass workflow=${JSON.stringify(generate)}. Omit provider/model overrides.
-- For edit_image: always pass workflow=${JSON.stringify(edit)} and exactly one reference image (via source_attachment_id or default inline image). Omit other provider/model overrides.
+- For edit_image:
+  * Reference Selection: When editing a previously generated or workspace image, prefer passing source_path pointing directly to the lossless workspace PNG (e.g. source_path='dsh-image-gen/image-xxxx.png') to avoid lossy JPEG attachment compression. For user-uploaded chat images, pass source_attachment_id or omit to use the latest inline image. Pass exactly one reference image.
+  * Always pass workflow=${JSON.stringify(edit)}. Omit other provider/model overrides.
+
+Anti-Chaining & Rollback Rule:
+- NEVER sequentially chain more than 1-2 edits on top of an already edited image. Repeated sequential editing rapidly accumulates latent noise, artifacts, and color drift.
+- If an edit introduces regressions or fails to achieve the target, DO NOT continue editing that degraded output. Discard the degraded output and re-edit directly from the original clean base image (prefer using source_path).
+- If an image suffers from multiple structural or topological errors (e.g. wrong layout, wrong geometry, or scrambled button positions), DO NOT attempt multi-round editing. Call generate_image instead with a corrected full descriptive prompt to regenerate a clean base image.
 
 Prompt Standards for local diffusion models:
 1. Text-to-Image Generation (generate_image):
 - Format: Write a descriptive English natural language paragraph. Do NOT output comma-separated tag soup.
 - Subject Layout & Geometry: For manufactured products, electronics, or complex anatomy, explicitly specify spatial arrangements and part topology (e.g. for controllers, specify asymmetric thumbstick layout with left stick above D-pad and right stick below face buttons) to prevent topological hallucinations.
+- Standard Product Controls & Labels: For hardware, electronics, or objects that naturally feature standardized labeled controls (e.g. gamepad face buttons, keyboards, remote buttons), DO NOT forbid text or append "no text / typography-free". Instead, explicitly specify canonical button colors, markings, and exact spatial arrangement upfront:
+  * For Xbox-style controller face button diamond cluster (right side): Top button is Yellow with uppercase letter "Y"; Right button is Red with uppercase letter "B"; Bottom button is Green with uppercase letter "A"; Left button is Blue with uppercase letter "X". All letters must be clear, centered, and crisp.
 - Text & Typography: Always enclose any rendered text in quotes (e.g. text reading "SHOP NOW"). Specify exact font style, color, case, and placement (e.g. "bold sans-serif white uppercase letters centered on the pill button"). Explicitly state "clean typography, no extra letters, no typos".
 - Lighting & Composition: Specify camera perspective, angle, framing, and clean studio lighting.
 
 2. Image Editing (edit_image):
-- Preservation Anchor: Explicitly instruct the model to preserve all unmentioned elements: "Keep the subject, background, lighting, color palette, and overall composition strictly unchanged."
-- Surgical Modification: Concretely describe only the target delta (e.g. "Modify only the text on the bottom cyan button: replace existing text with exactly 'SHOP NOW' in crisp white bold uppercase letters; leave the button shape, color, and surrounding details untouched.").
-- Do not redesign or alter regions outside the user's explicit request.`,
+- Preservation Anchor: Instruct the model: "Keep the subject, background, lighting, color palette, and overall composition strictly identical to the reference image."
+- Targeted Delta Only: Concretely describe ONLY the target change and its exact target appearance. DO NOT list or re-describe the colors, letters, or attributes of neighboring untouched elements, as this causes cross-attention attribute leakage (e.g. mentioning yellow/red can cause yellow tint to bleed into surrounding black surfaces).
+- Spatial Disambiguation: Specify positions precisely relative to the object's anatomy (e.g. "the left button of the right-side ABXY face button cluster" rather than just "the left button").
+- Non-Destructive Edits: Do not redesign or alter regions outside the user's explicit request.`,
         });
     }
     const video = process.env.NIXLOOM_DSH_VIDEO_WORKFLOWS;

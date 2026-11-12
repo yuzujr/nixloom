@@ -38,15 +38,7 @@ def workflow(profile: dict[str, Any], *, edit: bool = False) -> dict[str, Any]:
             height=height,
             batch_size=1,
         ),
-        "9": node(
-            "VAEDecodeTiled",
-            samples=["8", 0],
-            vae=["3", 0],
-            tile_size=512,
-            overlap=64,
-            temporal_size=64,
-            temporal_overlap=8,
-        ),
+        "9": node("VAEDecode", samples=["8", 0], vae=["3", 0]),
         "10": node(
             "SaveImage",
             images=["9", 0],
@@ -63,7 +55,7 @@ def workflow(profile: dict[str, Any], *, edit: bool = False) -> dict[str, Any]:
                 "12": node(
                     "ImageScaleToTotalPixels",
                     image=["11", 0],
-                    upscale_method="lanczos",
+                    upscale_method="nearest-exact",
                     megapixels=1.0,
                     resolution_steps=1,
                 ),

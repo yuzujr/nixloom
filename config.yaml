@@ -21,7 +21,7 @@ llm:
   cache_type_k: q8_0
   cache_type_v: q8_0
   mmproj_offload: false
-  image_tokens: 512
+  image_tokens: 1024
   reasoning_preserve: true
   sampling:
     temperature: 0.7
@@ -48,10 +48,10 @@ images:
     klein-edit:
       architecture: flux2
       task: edit
-      model_file: flux-2-klein-4b-nvfp4.safetensors
-      text_encoder: qwen_3_4b_fp8_mixed.safetensors
+      model_file: flux-2-klein-9b-nvfp4.safetensors
+      text_encoder: qwen_3_8b_fp4mixed.safetensors
       vae: flux2-vae.safetensors
-      steps: 8
+      steps: 4
       size: 1024x1024
 video:
   enabled: false
@@ -100,6 +100,16 @@ assets:
     url: https://huggingface.co/black-forest-labs/FLUX.2-klein-4b-nvfp4/resolve/1db2b2f776c24b76f1122e5f69ab1949fc620068/flux-2-klein-4b-nvfp4.safetensors
     size: 2460413488
     sha256: d8c5007b6a3bbbdfd38538bbcef5101a55dfde81894f58d2e3c8701cdef3542b
+  flux-2-klein-9b-nvfp4:
+    path: comfyui/models/diffusion_models/flux-2-klein-9b-nvfp4.safetensors
+    url: https://huggingface.co/ApacheOne/FluxKlein9b-nvfp4_mixed/resolve/bd53de46d38e5b63827580e31ce2dc89ad278392/bl_Klein9b-nvfp4.safetensors
+    size: 5760949448
+    sha256: 8eaab306a73d307084dc4c3281a1a81098beddb4e8385c295d2cfe4e6d8a406f
+  qwen_3_8b_fp4mixed:
+    path: comfyui/models/text_encoders/qwen_3_8b_fp4mixed.safetensors
+    url: https://huggingface.co/Comfy-Org/Flux-2-Klein-9B/resolve/1138ce884c8e977cdacacbe779784fec4426bb3f/split_files/text_encoders/qwen_3_8b_fp4mixed.safetensors
+    size: 6802593327
+    sha256: bbf16f981d98e16d080c566134814c4e9f6aadd0d0e1383c60bc44ba939d760d
   flux2-vae:
     path: comfyui/models/vae/flux2-vae.safetensors
     url: https://huggingface.co/Comfy-Org/flux2-klein-4B/resolve/5f526678002e43af5551dadb73ce2e8c91b43afe/split_files/vae/flux2-vae.safetensors
